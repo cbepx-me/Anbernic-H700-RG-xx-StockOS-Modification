@@ -76,8 +76,8 @@ Wallpapers: Front end background image
 WiFi: WiFi prompt material image
 
 Important reminder:
-① When making modifications, please follow the file format, resolution, transparency effect, file name, and other parameters of the original material images to avoid display errors!
-② The main interface icon and background image contain ten resource folders numbered "0-9". After modification, please select the corresponding number in the host settings.
+(1) When making modifications, please follow the file format, resolution, transparency effect, file name, and other parameters of the original material images to avoid display errors!
+(2) The main interface icon and background image contain ten resource folders numbered "0-9". After modification, please select the corresponding number in the host settings.
 
 3.2.3 Imgs - Preview image folder
 There is only one PNG format image file in this folder, which is a preview image of the corresponding theme installation script. It can be used as a preview theme effect in the console game list.
