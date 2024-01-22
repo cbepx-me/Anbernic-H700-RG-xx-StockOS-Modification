@@ -2,6 +2,11 @@
 
 RG35xx P& RG35xx H Stock OS Modification is a project built on the official systems of Anbernic RG35xx PLUS and RG35xx H, which is enhanced through modifications to achieve a better user experience.
 
+Change Log
+----------
+-20240122-
+Uploading...
+
 Include content
 ---------------
 1. Modified OS images that support automatic partition expansion
@@ -97,7 +102,11 @@ After completing the customization, please copy the "Theme-TCT. sh", "Theme-TCT"
 Development Plan
 ----------------
 1. Add LED control function script
-2. ...
+2. Add Backup and restore system data function script
+3. Add change  retroarch hotkey enable key function script
+4. Fix the issue of "QUICK_SHUTDOWN"
+5. Fix installation errors in the previous version
+6. ...
 
 Download
 --------
