@@ -4,9 +4,13 @@ RG35xx P& RG35xx H Stock OS Modification is a project built on the official syst
 
 Change Log
 ----------
--20240122-
-
-Uploading...
+20240123-v1.1
+1. Add power led control function
+2. Add backup and restore system data function
+3. RG35xxH adds change RA hotkey function
+4. Update some feature icons
+5. Fix installation errors in the previous version
+6. Fix the issue of "Quick shutdown"
 
 Include content
 ---------------
