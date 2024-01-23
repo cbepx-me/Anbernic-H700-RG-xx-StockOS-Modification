@@ -106,11 +106,11 @@ After completing the customization, please copy the "Theme-TCT. sh", "Theme-TCT"
 
 Development Plan
 ----------------
-1. Add LED control function script
-2. Add Backup and restore system data function script
-3. Add change  retroarch hotkey enable key function script
-4. Fix the issue of "QUICK_SHUTDOWN"
-5. Fix installation errors in the previous version
+1. Add LED control function script √ 
+2. Add Backup and restore system data function script √ 
+3. Add change  retroarch hotkey enable key function script √ 
+4. Fix the issue of "QUICK_SHUTDOWN" √ 
+5. Fix installation errors in the previous version √ 
 6. ...
 
 Download
