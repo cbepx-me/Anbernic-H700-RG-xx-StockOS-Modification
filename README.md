@@ -113,8 +113,4 @@ Development Plan
 5. Fix installation errors in the previous version √ 
 6. ...
 
-Download
---------
-https://drive.google.com/drive/folders/1uwCkGX3H-K09pj0VbB6hkS8I0_qhzrGY?usp=sharing
-
 Enjoy it!
