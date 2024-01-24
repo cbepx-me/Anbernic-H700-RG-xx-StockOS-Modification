@@ -113,4 +113,8 @@ Development Plan
 5. Fix installation errors in the previous version √ 
 6. ...
 
+About download quota exceeded
+-----------------------------
+Go up a directory and download the folder. Google Drive will make a zip of this folder and allow you to download that instead.
+
 Enjoy it!
