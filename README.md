@@ -4,7 +4,11 @@ RG35xx P& RG35xx H Stock OS Modification is a project built on the official syst
 
 Change Log
 ----------
-20240123-v1.1
+20240125
+1. Add eight custom themes
+
+20240123
+MOD v1.1
 1. Add power led control function
 2. Add backup and restore system data function
 3. RG35xxH adds change RA hotkey function
@@ -104,6 +108,13 @@ Installation method:
 
 After completing the customization, please copy the "Theme-TCT. sh", "Theme-TCT", and "Imgs" script files and two folders together to the "Roms/APPS" folder in the game partition of Card 1 or Card 2. After booting up, enter "RA Games - APPS" to see the "Theme-TCT" function. After running, complete the theme installation.
 
+# 4. Custom themes
+
+The themes comes from the internet. Please let me know if there is any infringement.
+
+1. Unplug the TF 1 or TF 2 and insert it into the computer. Copy the entire APPS folder into the Roms folder of TF 1 or TF 2.
+2. Insert the TF and start it up. In the RA game, select APPS and find various themes to run.
+
 Development Plan
 ----------------
 1. Add LED control function script √ 
@@ -111,7 +122,10 @@ Development Plan
 3. Add change  retroarch hotkey enable key function script √ 
 4. Fix the issue of "QUICK_SHUTDOWN" √ 
 5. Fix installation errors in the previous version √ 
-6. ...
+6. Add Custom themes √ 
+7. Add Install SSH
+8. Add Install mpv
+9. ...
 
 About download quota exceeded
 -----------------------------
