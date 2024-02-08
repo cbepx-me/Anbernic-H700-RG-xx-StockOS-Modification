@@ -110,8 +110,8 @@ Development Plan
 4. Fix the issue of "QUICK_SHUTDOWN" √ 
 5. Fix installation errors in the previous version √ 
 6. Add Custom themes √ 
-7. Add Install SSH
-8. Add Install mpv
+7. Add Install SSH √ 
+8. Add Install mpv √ 
 9. ...
 
 About download quota exceeded
