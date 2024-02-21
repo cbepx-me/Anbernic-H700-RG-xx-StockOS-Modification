@@ -4,7 +4,7 @@ RG35xx P& RG35xx H Stock OS Modification is a project built on the official syst
 
 Include content
 ---------------
-1. Modified OS images that support automatic partition expansion
+1. Modified Stock OS images that support automatic partition expansion
 2. Package files that support lossless upgrades
 3. As a template package for customizing system themes
 4. Other additional tools
