@@ -10,9 +10,9 @@ RG35xx P& RG35xx H Stock OS Modification is a project built on the official syst
 4. Open source resources
 5. Other additional tools
 
-## For more information, please visit: 
+## For more information, please visit
 https://github.com/cbepx-me/RG35xx-P-RG35xx-H-Modification/wiki
 
 
-## Download:
+## Download
 https://drive.google.com/drive/folders/1uwCkGX3H-K09pj0VbB6hkS8I0_qhzrGY?usp=sharing
