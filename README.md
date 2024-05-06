@@ -1,6 +1,6 @@
-# RG35xx P &amp; RG35xx H Stock OS Modification
+# Anbernic RG35xx Plus (RGG35xx 2024) &amp; RG35xx H &amp; RG28xx Stock OS Modification
 
-RG35xx P& RG35xx H Stock OS Modification is a project built on the official systems of Anbernic RG35xx PLUS and RG35xx H, which is enhanced through modifications to achieve a better user experience.
+RG35xx Plus (RGG35xx 2024) & RG35xx H & RG28xx Stock OS Modification is a project built on the official systems of Anbernic, which is enhanced through modifications to achieve a better user experience.
 
 ## Include content
 
