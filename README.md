@@ -10,6 +10,9 @@ RG35xx Plus (RGG35xx 2024) & RG35xx H & RG28xx Stock OS Modification is a projec
 4. Open source resources
 5. Other additional tools
 
+## Important tips
+When using balenaEtcher flash TF under MacOS system, automatic partitioning will fail. It is recommended to use rufus flash TF under windows.
+
 ## For more information, please visit
 https://github.com/cbepx-me/RG35xx-P-RG35xx-H-Modification/wiki
 
