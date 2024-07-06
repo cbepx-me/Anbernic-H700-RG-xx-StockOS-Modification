@@ -1,6 +1,6 @@
-# Anbernic RG35xx Plus (RGG35xx 2024) &amp; RG35xx H &amp; RG28xx Stock OS Modification
+# Anbernic H700 RG35xx Plus (RGG35xx 2024) &amp; RG35xx H &amp; RG35xxSP &amp; RG28xx Stock OS Modification
 
-RG35xx Plus (RGG35xx 2024) & RG35xx H & RG28xx Stock OS Modification is a project built on the official systems of Anbernic, which is enhanced through modifications to achieve a better user experience.
+RG35xx Plus (RGG35xx 2024) & RG35xx H & RG35xxSP & RG28xx Stock OS Modification is a project built on the official systems of Anbernic, which is enhanced through modifications to achieve a better user experience.
 
 ## Include content
 
@@ -11,11 +11,11 @@ RG35xx Plus (RGG35xx 2024) & RG35xx H & RG28xx Stock OS Modification is a projec
 5. Other additional tools
 
 ## Important tips
-When using balenaEtcher flash TF under MacOS system, automatic partitioning will fail. It is recommended to use rufus flash TF under windows.
+1. When using balenaEtcher flash TF under MacOS system, automatic partitioning will fail. It is recommended to use rufus flash TF under windows.
+2. The 64-bit system is a new version that supports more ports games
 
 ## For more information, please visit
 https://github.com/cbepx-me/RG35xx-P-RG35xx-H-Modification/wiki
-
 
 ## Download
 ### 32-bit:
