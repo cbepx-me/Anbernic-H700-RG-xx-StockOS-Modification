@@ -18,4 +18,7 @@ https://github.com/cbepx-me/RG35xx-P-RG35xx-H-Modification/wiki
 
 
 ## Download
+### 32-bit:
 https://drive.google.com/drive/folders/1uwCkGX3H-K09pj0VbB6hkS8I0_qhzrGY?usp=sharing
+### 64-bit:
+https://mega.nz/folder/qKZiEQ4I#cUtkaHTJMWQPBcyVxFF7sA
