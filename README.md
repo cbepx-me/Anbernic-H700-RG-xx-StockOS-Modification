@@ -20,5 +20,7 @@ https://github.com/cbepx-me/RG35xx-P-RG35xx-H-Modification/wiki
 ## Download
 ### 32-bit:
 https://drive.google.com/drive/folders/1uwCkGX3H-K09pj0VbB6hkS8I0_qhzrGY?usp=sharing
-### 64-bit:
+### 64-bit & port games:
 https://mega.nz/folder/qKZiEQ4I#cUtkaHTJMWQPBcyVxFF7sA
+### 64-bit low power sleep mode
+https://terabox.com/s/1QYBrrEVY3tzA8OsEDwM7Lg
