@@ -1,4 +1,4 @@
-# Anbernic H700 RG35xx Plus (RGG35xx 2024) &amp; RG35xx H &amp; RG35xxSP &amp; RG28xx Stock OS Modification
+# Anbernic H700 RG35xx Plus (2024) &amp; RG35xx H &amp; RG35xxSP &amp; RG28xx &amp; RG40xx H Stock OS Modification
 
 RG35xx Plus (RGG35xx 2024) & RG35xx H & RG35xxSP & RG28xx Stock OS Modification is a project built on the official systems of Anbernic, which is enhanced through modifications to achieve a better user experience.
 
