@@ -1,6 +1,14 @@
-# Anbernic H700 RG35xx Plus (2024) &amp; RG35xx H &amp; RG35xxSP &amp; RG28xx &amp; RG40xx H Stock OS Modification
+# Anbernic H700 RG28xx* &amp; RG35xx* &amp; RG40xx* Stock OS Modification
 
-RG35xx Plus (RGG35xx 2024) & RG35xx H & RG35xxSP & RG28xx Stock OS Modification is a project built on the official systems of Anbernic, which is enhanced through modifications to achieve a better user experience.
+Handheld model：
+RG35xx Plus (RGG35xx 2024)
+RG35xx H
+RG35xxSP
+RG28xx
+RG40xx H
+RG40xx V
+
+Stock OS Modification is a project built on the StockOS of Anbernic, which is enhanced through modifications to achieve a better user experience.
 
 ## Include content
 
@@ -22,5 +30,5 @@ https://github.com/cbepx-me/RG35xx-P-RG35xx-H-Modification/wiki
 https://drive.google.com/drive/folders/1uwCkGX3H-K09pj0VbB6hkS8I0_qhzrGY?usp=sharing
 ### 64-bit:
 https://mega.nz/folder/qKZiEQ4I#cUtkaHTJMWQPBcyVxFF7sA
-### 64-bit low power sleep mode:
+### 64-bit Deep Sleep:
 https://drive.google.com/drive/folders/1Hh2_CUA8utCnRTEb_qrdkLuowNRWQMEf?usp=sharing
