@@ -1,12 +1,12 @@
 # Anbernic H700 RG28xx* &amp; RG35xx* &amp; RG40xx* Stock OS Modification
 
 Handheld model：
-RG35xx Plus (RGG35xx 2024)
-RG35xx H
-RG35xxSP
-RG28xx
-RG40xx H
-RG40xx V
+- RG35xx Plus (RGG35xx 2024)
+- RG35xx H
+- RG35xxSP
+- RG28xx
+- RG40xx H
+- RG40xx V
 
 Stock OS Modification is a project built on the StockOS of Anbernic, which is enhanced through modifications to achieve a better user experience.
 
