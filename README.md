@@ -30,5 +30,5 @@ https://github.com/cbepx-me/RG35xx-P-RG35xx-H-Modification/wiki
 https://drive.google.com/drive/folders/1uwCkGX3H-K09pj0VbB6hkS8I0_qhzrGY?usp=sharing
 ### 64-bit:
 https://mega.nz/folder/qKZiEQ4I#cUtkaHTJMWQPBcyVxFF7sA
-### 64-bit Deep Sleep:
+### 64-bit Deep Sleep (latest):
 https://drive.google.com/drive/folders/1Hh2_CUA8utCnRTEb_qrdkLuowNRWQMEf?usp=sharing
