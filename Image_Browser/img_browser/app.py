@@ -89,11 +89,12 @@ def handle_browser_input() -> None:
                 selected_index = min(
                     len(file_list) - 1, selected_index + max_elem
                 )
-        elif input.key("X"):
+        elif input.key("X") and file_list[selected_index][2] == "image":
             slideshow_images = [entry for entry in file_list if entry[2] == "image"]
             if len(slideshow_images) > 0:
+                print(file_list)
                 slideshow_active = True
-                slideshow_index = selected_index
+                slideshow_index = slideshow_images.index(file_list[selected_index])
                 last_slide_time = time.time()
                 current_window = "slideshow"
                 enter_fullscreen(slideshow_images[slideshow_index][1], is_slideshow=True)
@@ -112,6 +113,7 @@ def handle_browser_input() -> None:
                     update_file_list()
                     selected_index = 0
                 else:
+                    menu_deep[current_deep] = selected_index
                     gr.draw_log(f"{translator.translate('No valid file found!')}", fill=gr.colorBlue, outline=gr.colorBlueD1)
                     gr.draw_paint()
                     time.sleep(1)
@@ -134,6 +136,7 @@ def handle_browser_input() -> None:
                 skip_input_check = True
                 return
 
+    menu_deep[current_deep] = selected_index
     gr.draw_clear()
     gr.draw_rectangle_r([10, 40, x_size-10, y_size-40], 15, fill=gr.colorGrayD2, outline=None)
     gr.draw_text((50, 20), f"{translator.translate('Path')}: {current_path}", font=19, anchor="lm")
