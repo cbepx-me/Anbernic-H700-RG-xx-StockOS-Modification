@@ -1,6 +1,6 @@
 #!/bin/bash
 
-version="1.1.2"
+version="1.1.3"
 progdir="$(cd $(dirname "$0") || exit; pwd)"
 program="${progdir}/upgrade/upgrade.py"
 
@@ -8,8 +8,10 @@ SCRIPT_NAME="$0"
 NEW_FILE="$progdir/upgrade/update.sh"
 APP_FILE="/tmp/app.tar.gz"
 
-export PYSDL2_DLL_PATH="/usr/lib"
+pkill -f "upgrade.py" 2>/dev/null || true
 
+export PYSDL2_DLL_PATH="/usr/lib"
+/mnt/mod/ctrl/volumeCtrl.dge &
 while true
 do
     if [ -f "$NEW_FILE" ]; then
@@ -27,11 +29,13 @@ do
         tar -xf "$APP_FILE" -C "$progdir/"
         [ -f "$APP_FILE" ] && rm -rf "$APP_FILE"
     else
+        sleep 1
         $program
         if [ $? -ne 36 ]; then
             break
         fi
+        sleep 1
     fi
 done
-
+kill -9 $(pidof volumeCtrl.dge)
 exit 0
