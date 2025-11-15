@@ -7,6 +7,7 @@ import ssl
 from urllib.request import urlopen, Request
 import urllib.parse
 from systems import get_system_extension, systems
+from name_converter import name_converter
 
 
 class Rom:
@@ -14,6 +15,9 @@ class Rom:
         self.name = name
         self.filename = filename
         self.crc = crc
+        self.original_name = name
+        self.scraping_name = name
+
 
     def set_crc(self, crc):
         self.crc = crc
@@ -91,57 +95,96 @@ class Scraper:
 
         return available_systems
 
+    def get_scraping_name(self, rom: Rom, system_name: str) -> str:
+        if name_converter.is_chinese_name(rom.name):
+            english_name = name_converter.convert_to_english(system_name, rom.name)
+            print(f"Converted '{rom.name}' to '{english_name}' for scraping")
+            rom.scraping_name = english_name
+            return english_name
+        rom.scraping_name = rom.name
+        return rom.name
+
     def scrape_screenshot(
-        self, crc: str, game_name: str, system_id: int
+            self, crc: str, game_name: str, system_id: int, system_name: str = ""
     ) -> bytes | None:
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
 
+        scraping_name = game_name
+        if system_name:
+            scraping_name = self.get_scraping_name(Rom(game_name, ""), system_name)
+
         decoded_devid = base64.b64decode(self.devid).decode()
         decoded_devpassword = base64.b64decode(self.devpassword).decode()
-        encoded_game_name = urllib.parse.quote(game_name)
-        url = f"https://api.screenscraper.fr/api2/jeuInfos.php?devid={decoded_devid}&devpassword={decoded_devpassword}&softname=tiny-scraper&output=json&ssid={self.user}&sspassword={self.password}&crc={crc}&systemeid={system_id}&romtype=rom&romnom={encoded_game_name}"
+        encoded_game_name = urllib.parse.quote(scraping_name)
 
-        print(f"Scraping screenshot for {game_name}...")
-        request = Request(url)
-        try:
-            with urlopen(request, context=ctx) as response:
-                if response.status == 200:
-                    try:
-                        data = json.loads(response.read())
-                        game_data = data.get("response").get("jeu")
+        query_strategies = [
+            f"https://api.screenscraper.fr/api2/jeuInfos.php?devid={decoded_devid}&devpassword={decoded_devpassword}&softname=tiny-scraper&output=json&ssid={self.user}&sspassword={self.password}&crc={crc}&systemeid={system_id}&romtype=rom&romnom={encoded_game_name}",
 
-                        screenshot_url = ""
-                        for media in game_data.get("medias"):
-                            if media["type"] == self.media_type:
-                                if media["region"] == self.region:
-                                    screenshot_url = media["url"]
-                                    break
-                                elif (
-                                    not screenshot_url
-                                ):  # Keep the first one as fallback
-                                    print(f"No media found for this region {self.region} and type {self.media_type} combination for {game_name}")
-                                    screenshot_url = media["url"]
+            f"https://api.screenscraper.fr/api2/jeuInfos.php?devid={decoded_devid}&devpassword={decoded_devpassword}&softname=tiny-scraper&output=json&ssid={self.user}&sspassword={self.password}&systemeid={system_id}&romtype=rom&romnom={encoded_game_name}",
+        ]
 
-                        if screenshot_url:
-                            img_request = Request(screenshot_url)
-                            with urlopen(img_request, context=ctx) as img_response:
-                                if (
-                                    img_response.headers.get("Content-Type")
-                                    == "image/png"
-                                ):
-                                    return img_response.read()
+        if scraping_name != game_name:
+            encoded_original_name = urllib.parse.quote(game_name)
+            query_strategies.extend([
+                f"https://api.screenscraper.fr/api2/jeuInfos.php?devid={decoded_devid}&devpassword={decoded_devpassword}&softname=tiny-scraper&output=json&ssid={self.user}&sspassword={self.password}&crc={crc}&systemeid={system_id}&romtype=rom&romnom={encoded_original_name}",
+
+                f"https://api.screenscraper.fr/api2/jeuInfos.php?devid={decoded_devid}&devpassword={decoded_devpassword}&softname=tiny-scraper&output=json&ssid={self.user}&sspassword={self.password}&systemeid={system_id}&romtype=rom&romnom={encoded_original_name}",
+            ])
+
+        print(f"Scraping screenshot for {game_name} (strategies: {len(query_strategies)})...")
+
+        for i, url in enumerate(query_strategies):
+            print(f"Trying strategy {i + 1}: {url[:100]}...")
+            request = Request(url)
+            try:
+                with urlopen(request, context=ctx, timeout=10) as response:
+                    if response.status == 200:
+                        try:
+                            data = json.loads(response.read())
+                            if data.get("response", {}).get("jeu"):
+                                game_data = data["response"]["jeu"]
+                                screenshot_url = self.find_best_media(game_data)
+                                if screenshot_url:
+                                    return self.download_image(screenshot_url, ctx)
                                 else:
-                                    print(f"Invalid image format for {game_name}")
-                        else:
-                            print(f"No screenshot URL found for {game_name}")
-                    except ValueError:
-                        print(f"Invalid JSON response for {game_name}")
+                                    print(f"No suitable media found in strategy {i + 1}")
+                            else:
+                                print(f"No game data in strategy {i + 1}")
+                        except (ValueError, KeyError) as e:
+                            print(f"Invalid response in strategy {i + 1}: {e}")
+                    else:
+                        print(f"HTTP {response.status} in strategy {i + 1}")
+            except Exception as e:
+                print(f"Error in strategy {i + 1}: {e}")
+
+        print(f"All strategies failed for {game_name}")
+        return None
+
+    def find_best_media(self, game_data: dict) -> str:
+        for media in game_data.get("medias", []):
+            if (media.get("type") == self.media_type and
+                    media.get("region") == self.region):
+                return media.get("url")
+
+        for media in game_data.get("medias", []):
+            if media.get("type") == self.media_type:
+                return media.get("url")
+
+        for media in game_data.get("medias", []):
+            return media.get("url")
+
+        return ""
+
+    def download_image(self, url: str, ctx: ssl.SSLContext) -> bytes | None:
+        try:
+            img_request = Request(url)
+            with urlopen(img_request, context=ctx, timeout=10) as img_response:
+                if img_response.headers.get("Content-Type") == "image/png":
+                    return img_response.read()
                 else:
-                    print(f"Failed to get screenshot for {game_name}")
-            return None
+                    print(f"Invalid image format: {img_response.headers.get('Content-Type')}")
         except Exception as e:
-            print(f"Error scraping screenshot for {game_name}: {e}")
-            print(f"URL used: {url}")
-            return None
+            print(f"Error downloading image: {e}")
+        return None

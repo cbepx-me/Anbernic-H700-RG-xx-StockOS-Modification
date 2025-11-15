@@ -32,7 +32,6 @@ systems = [
     {"name": "NEOGEO", "id": 0, "extensions": ["zip"]},
     {"name": "NEOCD", "id": 0, "extensions": ["zip", "cue", "chd", "iso"]},
     {"name": "NGP", "id": 82, "extensions": ["ngp", "ngc", "zip"]},
-    {"name": "ONS", "id": 0, "extensions": ["zip", "dat", "txt", "nt", "nt2", "nt3", "ons"]},
     {"name": "PCE", "id": 105, "extensions": ["pce", "cue", "ccd", "zip"]},
     {"name": "PCECD","id": 114,"extensions": ["cue", "ccd", "chd", "toc", "m3u"]},
     {"name": "PGM2", "id": 0, "extensions": ["zip"]},
