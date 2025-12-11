@@ -105,6 +105,7 @@ def load_console_menu() -> None:
                 files = [
                     "/mnt/vendor/res1/",
                     "/mnt/vendor/res2/",
+                    "/mnt/vendor/res3/",
                     "/mnt/vendor/bin/default.ttf"
                 ]
                 files_to_compress = []
