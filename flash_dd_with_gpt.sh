@@ -2,7 +2,7 @@
 
 # DD Image Flashing Script
 # Author: cbepx-me
-# Version: 1.1 - Added GPT repair function
+# Version: 1.2 - Added GPT repair function
 
 set -e  # Exit immediately on error
 
@@ -12,6 +12,8 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
+
+version=1.2
 
 # Log functions
 log_info() {
@@ -33,7 +35,7 @@ log_success() {
 # Show available image files in current directory
 show_available_images() {
     log_info "Available image files in current directory:"
-    local images=($(ls *.img 2>/dev/null))
+    local images=($(find . -maxdepth 1 -type f -iname "*.img" -exec basename {} \; 2>/dev/null | sort))
     
     if [ ${#images[@]} -eq 0 ]; then
         log_error "No .img files found"
@@ -41,14 +43,15 @@ show_available_images() {
     fi
     
     for i in "${!images[@]}"; do
-        echo "  $((i+1)). ${images[$i]} ($(du -h "${images[$i]}" | cut -f1))"
+        local file="${images[$i]}"
+        echo "  $((i+1)). $file ($(du -h "$file" | cut -f1))"
     done
     echo
 }
 
 # Select image file
 select_image() {
-    local images=($(ls *.img 2>/dev/null))
+    local images=($(find . -maxdepth 1 -type f -iname "*.img" -exec basename {} \; 2>/dev/null | sort))
     
     if [ ${#images[@]} -eq 1 ]; then
         SELECTED_IMAGE="${images[0]}"
@@ -114,7 +117,7 @@ select_device() {
         log_warn "You selected: $device"
         log_warn "Device info: $device_info"
         
-        read -p "Confirm using this device? All data will be destroyed! (y/N): " final_confirm
+        read -p "Confirm using this device? All data will be destroyed! (y/n): " final_confirm
         if [[ "$final_confirm" =~ ^[Yy]$ ]]; then
             SELECTED_DEVICE="$device"
             break
@@ -132,7 +135,7 @@ unmount_device() {
     for mount in "${mounts[@]}"; do
         if [ -n "$mount" ] && mountpoint -q "$mount" 2>/dev/null; then
             log_warn "Unmounting partition: $mount"
-            sudo umount "$mount" 2>/dev/null || true
+            $ESUDO umount "$mount" 2>/dev/null || true
         fi
     done
     
@@ -142,7 +145,7 @@ unmount_device() {
             mountpoint=$(lsblk -n -o MOUNTPOINT "$part" 2>/dev/null)
             if [ -n "$mountpoint" ] && mountpoint -q "$mountpoint" 2>/dev/null; then
                 log_warn "Unmounting partition: $part -> $mountpoint"
-                sudo umount "$part" 2>/dev/null || true
+                $ESUDO umount "$part" 2>/dev/null || true
             fi
         fi
     done
@@ -171,7 +174,7 @@ flash_image() {
     # Execute dd command
     local start_time=$(date +%s)
     
-    sudo dd if="$SELECTED_IMAGE" of="$SELECTED_DEVICE" \
+    $ESUDO dd if="$SELECTED_IMAGE" of="$SELECTED_DEVICE" \
         bs=4M status=progress \
         oflag=sync conv=fsync
     
@@ -188,7 +191,7 @@ flash_image() {
 
 # Verify flash (optional)
 verify_flash() {
-    read -p "Do you want to verify the flash result? (y/N): " verify_choice
+    read -p "Do you want to verify the flash result? (y/n): " verify_choice
     if [[ "$verify_choice" =~ ^[Yy]$ ]]; then
         log_info "Starting verification..."
         
@@ -203,7 +206,7 @@ verify_flash() {
         # Calculate hash of device (only the image size portion)
         log_info "Calculating device hash..."
         local image_size=$(stat -c%s "$SELECTED_IMAGE")
-        sudo dd if="$SELECTED_DEVICE" bs=4M count=$((image_size/4194304)) 2>/dev/null | \
+        $ESUDO dd if="$SELECTED_DEVICE" bs=4M count=$((image_size/4194304)) 2>/dev/null | \
             sha256sum | cut -d' ' -f1 > "$device_hash"
         
         # Compare hashes
@@ -236,7 +239,7 @@ fix_gpt_table() {
     log_info "Executing GPT repair steps: p -> x -> e -> w -> y"
     
     # Method: Use echo to pipe commands
-    echo -e "p\nx\ne\nw\ny" | sudo gdisk "$SELECTED_DEVICE"
+    echo -e "p\nx\ne\nw\ny" | $ESUDO gdisk "$SELECTED_DEVICE"
     
     local gdisk_result=$?
     
@@ -245,7 +248,7 @@ fix_gpt_table() {
         
         # Show repaired partition information
         log_info "Repaired partition table:"
-        sudo gdisk -l "$SELECTED_DEVICE" | head -20
+        $ESUDO gdisk -l "$SELECTED_DEVICE" | head -20
     else
         log_error "GPT partition table repair failed, error code: $gdisk_result"
         return $gdisk_result
@@ -259,7 +262,7 @@ fix_gpt_table() {
 show_final_info() {
     log_info "Final device status:"
     echo "========================================"
-    sudo fdisk -l "$SELECTED_DEVICE" | head -20
+    $ESUDO fdisk -l "$SELECTED_DEVICE" | head -20
     echo "----------------------------------------"
     lsblk "$SELECTED_DEVICE"
     echo "========================================"
@@ -271,18 +274,21 @@ show_final_info() {
 # Main function
 main() {
     clear
-    echo "=========================================="
-    echo "DD Image Flashing Script (with GPT Repair)"
-    echo "=========================================="
-    echo
+    echo "=============================================="
+    echo "DD Image Flashing Script v$version(with GPT Repair)"
+    echo "=============================================="
+    echo 
     
     # Check root privileges
     if [ "$EUID" -eq 0 ]; then
         log_warn "It's not recommended to run this script directly as root"
-        read -p "Continue anyway? (y/N): " root_continue
+        read -p "Continue anyway? (y/n): " root_continue
         if [[ ! "$root_continue" =~ ^[Yy]$ ]]; then
             exit 1
         fi
+        ESUDO=""
+    else
+        ESUDO="sudo"
     fi
     
     # Check dependencies
@@ -320,7 +326,7 @@ main() {
     
     # GPT repair
     echo
-    read -p "Do you want to repair GPT partition table? (Recommended) (Y/n): " fix_gpt_choice
+    read -p "Do you want to repair GPT partition table? (Recommended) (y/n): " fix_gpt_choice
     if [[ "${fix_gpt_choice:-Y}" =~ ^[Yy]$ ]]; then
         fix_gpt_table
     else
