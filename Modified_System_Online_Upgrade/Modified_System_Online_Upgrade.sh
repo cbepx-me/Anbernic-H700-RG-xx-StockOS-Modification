@@ -1,9 +1,9 @@
 #!/bin/bash
 
-version="1.1.3"
+version="2.0.0"
 progdir="$(cd $(dirname "$0") || exit; pwd)"
 program="${progdir}/upgrade/upgrade.py"
-
+log_file="${progdir}/upgrade/log.txt"
 SCRIPT_NAME="$0"
 NEW_FILE="$progdir/upgrade/update.sh"
 APP_FILE="/tmp/app.tar.gz"
@@ -30,7 +30,7 @@ do
         [ -f "$APP_FILE" ] && rm -rf "$APP_FILE"
     else
         sleep 1
-        $program
+        $program > $log_file 2>&1
         if [ $? -ne 36 ]; then
             break
         fi
