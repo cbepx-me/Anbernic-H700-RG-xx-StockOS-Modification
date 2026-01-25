@@ -1,0 +1,34 @@
+#!/bin/bash
+#make by G.R.H
+
+SHDIR="$(cd $(dirname "$0"); pwd)"
+BOOT_DEVICE=/dev/mmcblk0p2
+BOOT_PATH=/mnt/boot
+
+if [ -d "$SHDIR/ins" ]; then
+    for script in $SHDIR/ins/*.sh
+    do
+        chmod +x "${script}"
+        "${script}"
+    done
+    rm -rf "$SHDIR/ins"
+fi
+
+# 自动扩容roms分区
+if [ -f /mnt/.please_create ]; then
+    /mnt/mod/ctrl/create.sh
+fi
+
+for TF_PATH in mmc sdcard
+do
+    [ -f /mnt/${TF_PATH}/update.zip ] && unzip -oq /mnt/${TF_PATH}/update.zip -d /mnt/${TF_PATH}/ && rm -f /mnt/${TF_PATH}/update.zip
+    [ -f /mnt/${TF_PATH}/update/update.sh ] && /mnt/${TF_PATH}/update/update.sh && rm -rf /mnt/${TF_PATH}/update
+done
+
+# 自动为新分区安装补丁
+if [ -f /mnt/mod/update/update.sh ]; then
+    chmod +x /mnt/mod/update/update.sh
+    /mnt/mod/update/update.sh
+fi
+
+exit 0
