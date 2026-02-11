@@ -23,7 +23,9 @@ Stock OS Modification is a project built on the StockOS of Anbernic, which is en
 
 ## Important tips
 1. It is recommended to use rufus flash TF under windows.
-   - Download: https://rufus.ie
+   - Windows recommends using: [Rufus](https://rufus.ie/)
+   - Linux compatible: [flash_dd_with_gpt.sh](https://github.com/cbepx-me/Anbernic-H700-RG-xx-StockOS-Modification/releases/download/20260106/flash_dd_with_gpt.sh)
+   - Mac OS compatible: [flash_dd_with_gpt (MacOS).sh](https://github.com/cbepx-me/Anbernic-H700-RG-xx-StockOS-Modification/releases/download/20260106/flash_dd_with_gpt.MacOS.sh)
 
 2. When using programs such as BalenaEtcher and DD flash TF on MacOS or Linux systems, automatic partitioning will fail.
    - Solution: https://github.com/cbepx-me/Anbernic-H700-RG-xx-StockOS-Modification/issues/68
