@@ -1,6 +1,6 @@
 #!/bin/bash
 
-version="2.0.1"
+version="2.0.2"
 progdir="$(cd $(dirname "$0") || exit; pwd)"
 program="${progdir}/upgrade/upgrade.py"
 log_file="${progdir}/upgrade/log.txt"
