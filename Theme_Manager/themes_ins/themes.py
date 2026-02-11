@@ -111,7 +111,7 @@ class Themes:
             for dir_name in dirs:
                 if dir_name == '__MACOSX':
                     shutil.rmtree(os.path.join(root, dir_name))
-                elif dir_name in ['res1', 'res2']:
+                elif dir_name in ['res1', 'res2', 'res3']:
                     shutil.copytree(os.path.join(root, dir_name), os.path.join('/mnt/vendor', dir_name), dirs_exist_ok=True)
             for file_name in files:
                 if file_name == '.DS_Store':

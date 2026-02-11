@@ -11,7 +11,7 @@ from anbernic import Anbernic
 ver="v1.2"
 translator = Translator(system_lang)
 an = Anbernic()
-skip_input_check = False
+skip_input_check = True
 current_window = "browser"
 current_path = an.get_sd_storage_path()
 file_list = []

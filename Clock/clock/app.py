@@ -13,7 +13,7 @@ import os
 ver = "v1.2"
 translator = Translator(system_lang)
 gr = UserInterface()
-skip_input_check = False
+skip_input_check = True
 current_window = "console"
 selected_index = 0
 

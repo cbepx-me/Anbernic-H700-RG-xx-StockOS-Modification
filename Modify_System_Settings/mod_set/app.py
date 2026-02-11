@@ -19,7 +19,7 @@ opt_selected_position = 0
 selected_menu = ""
 current_window = "menu"
 help_txt = ""
-skip_input_check = False
+skip_input_check = True
 set = Set()
 gr = UserInterface()
 

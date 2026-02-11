@@ -13,13 +13,14 @@ from bezels import Bezels
 ver="v1.2"
 translator = Translator(system_lang)
 gr = UserInterface()
+cfg_is_ok = 0
 selected_position = 0
 roms_selected_position = 0
 selected_system = ""
 current_window = "console"
 an = Anbernic()
 bezels = Bezels()
-skip_input_check = False
+skip_input_check = True
 
 x_size, y_size, max_elem = screen_resolutions.get(hw_info, (640, 480, 11))
 
@@ -130,7 +131,8 @@ def load_cfg_menu() -> None:
         current_window, \
         roms_selected_position, \
         skip_input_check, \
-        selected_system
+        selected_system, \
+        cfg_is_ok
 
     exit_menu = False
     roms_list = bezels.get_roms(an.get_sd_storage_path(), selected_system)
@@ -188,31 +190,49 @@ def load_cfg_menu() -> None:
             )
 
     elif input.key("A"):
-        rom = roms_list[roms_selected_position]
-        bezel_file = f"{system_path}/{rom.filename}"
-        with open(bezel_file, 'r') as file_object:
-            for line in file_object:
-                line = line.strip()
-                if line.startswith('overlay0_overlay ='):
-                    overlay_value = line.split(' = ')[1]
-                    if overlay_value.startswith(("'", '"')) and overlay_value.endswith(("'", '"')):
-                        overlay_value = overlay_value[1:-1]
-                    break
-        img_file=f"{system_path}/{overlay_value}"
-        if os.path.exists(img_file):
-            cfg_file = f"{cfg_path}/{selected_system}.cfg"
-            gr.draw_log(f"{translator.translate('Setting...')}", fill=gr.colorBlue, outline=gr.colorBlueD1)
-            gr.draw_paint()
-            with open(cfg_file, 'w') as file_object:
-                file_object.write(f"{bezel_file}\n")
-            cf.set_config("global.bezel", 1)
-            time.sleep(1)
-            gr.draw_log(
-                f"{selected_system} {translator.translate('bezel set to')} {rom.name}", fill=gr.colorBlue, outline=gr.colorBlueD1
-            )
-            gr.draw_paint()
-            time.sleep(3)
+        if cfg_is_ok == 1:
+            rom = roms_list[roms_selected_position]
+            bezel_file = f"{system_path}/{rom.filename}"
+            with open(bezel_file, 'r') as file_object:
+                for line in file_object:
+                    line = line.strip()
+                    if line.startswith('overlay0_overlay ='):
+                        overlay_value = line.split(' = ')[1]
+                        if overlay_value.startswith(("'", '"')) and overlay_value.endswith(("'", '"')):
+                            overlay_value = overlay_value[1:-1]
+                        break
+            img_file=f"{system_path}/{overlay_value}"
+            if os.path.exists(img_file):
+                cfg_file = f"{cfg_path}/{selected_system}.cfg"
+                gr.draw_log(f"{translator.translate('Setting...')}", fill=gr.colorBlue, outline=gr.colorBlueD1)
+                gr.draw_paint()
+                with open(cfg_file, 'w') as file_object:
+                    file_object.write(f"{bezel_file}\n")
+                cf.set_config("global.bezel", 1)
+                time.sleep(1)
+                gr.draw_log(
+                    f"{selected_system} {translator.translate('bezel set to')} {rom.name}", fill=gr.colorBlue, outline=gr.colorBlueD1
+                )
+                gr.draw_paint()
+                time.sleep(3)
             exit_menu = True
+        elif cfg_is_ok == 2:
+            rom_to_delete = roms_list[roms_selected_position]
+            bezel_file = f"{system_path}/{rom_to_delete.filename}"
+            if os.path.exists(bezel_file):
+                os.remove(bezel_file)
+            roms_list.pop(roms_selected_position)
+
+            if not roms_list:
+                current_window = "console"
+                selected_system = ""
+                gr.draw_clear()
+                roms_selected_position = 0
+                skip_input_check = True
+                return
+
+            if roms_selected_position >= len(roms_list):
+                roms_selected_position = len(roms_list) - 1
 
     if exit_menu:
         current_window = "console"
@@ -263,13 +283,18 @@ def load_cfg_menu() -> None:
                 break
     img_file=f"{system_path}/{overlay_value}"
     if os.path.exists(img_file):
+        cfg_is_ok = 1
         gr.display_image(img_file, target_x = int(x_size / 2 + 10), target_y = int(y_size / 4), target_width = int(x_size / 2 - 30), target_height = int((x_size / 2 - 30) * ratio))
     else:
+        cfg_is_ok = 2
         gr.draw_log(
             f"{translator.translate('The .cfg file has an issue and cannot be used!')}", fill=gr.colorBlue, outline=gr.colorBlueD1
         )
 
-    gr.button_circle((20, button_y), "A", f"{translator.translate('Apply')}")
+    if cfg_is_ok == 1:
+        gr.button_circle((20, button_y), "A", f"{translator.translate('Apply')}")
+    elif cfg_is_ok == 2:
+        gr.button_circle((20, button_y), "A", f"{translator.translate('Delete')}")
     gr.button_circle((160, button_y), "B", f"{translator.translate('Back')}")
     gr.button_circle((280, button_y), "X", f"{translator.translate('Reset')}")
     gr.button_circle((button_x, button_y), "M", f"{translator.translate('Exit')}")

@@ -17,7 +17,7 @@ opt_selected_position = 0
 selected_menu = ""
 current_window = "menu"
 help_txt = ""
-skip_input_check = False
+skip_input_check = True
 an = Anbernic()
 set = Set()
 gr = UserInterface()
@@ -170,11 +170,11 @@ def load_options_menu() -> None:
         gr.draw_paint()
         time.sleep(3)
         if command == "tools:apps":
+            os.system('sync')
             gr.draw_log(f"{translator.translate('Rebooting...')}", fill=status_color, outline=status_color, font=19)
             gr.draw_paint()
-            os.system('sync')
             os.system('reboot')
-            time.sleep(3)
+            time.sleep(300)
 
     elif input.key("DY"):
         opt_selected_position = (opt_selected_position + input.value) % len(opt_list)

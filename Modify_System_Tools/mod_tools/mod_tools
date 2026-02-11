@@ -87,6 +87,29 @@ case $1 in
     apps) # Reinstall apps
         touch /mnt/mod/update_me
     ;;
+
+    bezels) # Reinstall bezels
+        [ -f "/mnt/mod/update/mod/data/hdmi.dep" ] && unzip -oq /mnt/mod/update/mod/data/hdmi.dep -d /
+        board_info=$(head -n 1 /mnt/vendor/oem/board.ini)
+        case $board_info in
+            "RG28xx")
+                [ -f "/mnt/mod/update/mod/data/28.dep" ] && unzip -oq /mnt/mod/update/mod/data/28.dep -d /
+            ;;
+            "RGcubexx")
+                [ -f "/mnt/mod/update/mod/data/cube.dep" ] && unzip -oq /mnt/mod/update/mod/data/cube.dep -d /
+            ;;
+            "RG34xx")
+                [ -f "/mnt/mod/update/mod/data/34.dep" ] && unzip -oq /mnt/mod/update/mod/data/34.dep -d /
+            ;;
+            "RG34xxSP")
+                [ -f "/mnt/mod/update/mod/data/34.dep" ] && unzip -oq /mnt/mod/update/mod/data/34.dep -d /
+                [ -f "/mnt/mod/update/mod/data/34sp.dep" ] && unzip -oq /mnt/mod/update/mod/data/34sp.dep -d /
+            ;;
+            *)
+                [ -f "/mnt/mod/update/mod/data/35.dep" ] && unzip -oq /mnt/mod/update/mod/data/35.dep -d /
+            ;;
+        esac
+    ;;
 esac
 
 user_quit

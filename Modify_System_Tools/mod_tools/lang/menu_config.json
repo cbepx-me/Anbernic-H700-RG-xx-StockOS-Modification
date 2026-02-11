@@ -54,6 +54,15 @@
       "operations": ["tools:st"]
     },
     {
+      "menu": "menu.bezels",
+      "menu_help": "menu.bezels.help",
+      "options": ["menu.bezels.open"],
+      "opt_help": [
+        "menu.bezels.opt.open"
+      ],
+      "operations": ["tools:bezels"]
+    },
+    {
       "menu": "menu.apps",
       "menu_help": "menu.apps.help",
       "options": ["menu.apps.open"],

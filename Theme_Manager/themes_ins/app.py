@@ -21,7 +21,7 @@ selected_system = ""
 current_window = "console"
 an = Anbernic()
 themes = Themes()
-skip_input_check = False
+skip_input_check = True
 
 x_size, y_size, max_elem = screen_resolutions.get(hw_info, (640, 480, 9))
 
@@ -105,6 +105,7 @@ def load_console_menu() -> None:
                 files = [
                     "/mnt/vendor/res1/",
                     "/mnt/vendor/res2/",
+                    "/mnt/vendor/res3/",
                     "/mnt/vendor/bin/default.ttf"
                 ]
                 files_to_compress = []

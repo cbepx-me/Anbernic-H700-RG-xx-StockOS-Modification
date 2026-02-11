@@ -23,7 +23,7 @@ current_window = "console"
 an = Anbernic()
 scraper = Scraper()
 gr = UserInterface()
-skip_input_check = False
+skip_input_check = True
 
 x_size, y_size, max_elem = screen_resolutions.get(hw_info, (640, 480, 11))
 

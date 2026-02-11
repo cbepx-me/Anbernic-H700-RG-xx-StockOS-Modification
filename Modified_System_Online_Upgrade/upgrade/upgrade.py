@@ -33,8 +33,47 @@ from urllib.error import ContentTooShortError, URLError
 # =========================
 from PIL import Image, ImageDraw, ImageFont
 
-cur_app_ver = "1.1.3"
+cur_app_ver = "2.0.2"
 base_ver = "3.8.0"
+base_date = "20250211"
+source = "source/"
+
+# =========================
+# Logging Setup
+# =========================
+APP_PATH = os.path.dirname(os.path.abspath(__file__))
+LOG_FILE = os.path.join(APP_PATH, "update.log")
+log_delete = 1
+if log_delete and os.path.exists(LOG_FILE):
+    os.remove(LOG_FILE)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[logging.FileHandler(LOG_FILE), logging.StreamHandler(sys.stdout)],
+)
+LOGGER = logging.getLogger("upgrade")
+LOGGER.info(f">>>")
+LOGGER.info(f"=== Start Log ===")
+
+def read_current_os_version() -> str:
+    try:
+        os_ver_cfg_path: str = "/mnt/vendor/oem/version.ini"
+        ver_file = Path(os_ver_cfg_path)
+        if ver_file.exists():
+            ver = ver_file.read_text().splitlines()[0]
+            LOGGER.info("Current OS Date version: %s", ver)
+            return ver
+        LOGGER.warning(f"OS Date version file not found: {ver_file}")
+    except Exception as e:
+        LOGGER.error("Error reading OS Date version file: %s", e)
+    return "Unknown"
+
+os_cur_ver = read_current_os_version()
+if os_cur_ver >= "20251206":
+    base_ver = "3.9.0"
+    base_date = "20251206"
+    source = "390/"
 
 def ensure_requests():
     try:
@@ -62,24 +101,6 @@ if ensure_requests():
     from urllib3.util import Retry
     from requests.adapters import HTTPAdapter
     import sdl2
-
-# =========================
-# Logging Setup
-# =========================
-APP_PATH = os.path.dirname(os.path.abspath(__file__))
-LOG_FILE = os.path.join(APP_PATH, "update.log")
-log_delete = 1
-if log_delete and os.path.exists(LOG_FILE):
-    os.remove(LOG_FILE)
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[logging.FileHandler(LOG_FILE), logging.StreamHandler(sys.stdout)],
-)
-LOGGER = logging.getLogger("upgrade")
-LOGGER.info(f">>>")
-LOGGER.info(f"=== Start Log ===")
 
 # =========================
 # Enhanced Configuration
@@ -142,7 +163,6 @@ class Config:
         font_file: str = "/mnt/vendor/bin/default.ttf"
 
     ver_cfg_path: str = "/mnt/mod/ctrl/configs/ver.cfg"
-    os_ver_cfg_path: str = "/mnt/vendor/oem/version.ini"
 
     tmp_app_update: str = "/tmp/app.tar.gz"
     target_path: str = ""
@@ -179,6 +199,11 @@ class Config:
 
     mirrors = [
         {
+            "name": "localhost",
+            "url": "http://192.168.1.9/source/update_info.json",
+            "region": "local"
+        },
+        {
             "name": "GitHub",
             "url": "https://github.com/cbepx-me/upgrade/releases/download/source/update_info.json",
             "region": "Global"
@@ -199,14 +224,22 @@ class Config:
     for mirror in mirrors:
         try:
             start = time.time()
-            requests.head(mirror["url"], timeout=3, headers=headers)
+            response = requests.get(mirror["url"], timeout=3, headers=headers, stream=True)
+            response.close()
             end = time.time() - start
+            if response.status_code == 404:
+                LOGGER.error(f"Mirror {mirror['name']} accessible but file update_info.json not found (404)")
+                end = float('inf')
+            elif response.status_code != 200:
+                LOGGER.error(f"Mirror {mirror['name']} returned error code: {response.status_code}")
+                end = float('inf')
         except:
             end = float('inf')
         speeds.append((end, mirror))
     speeds.sort(key=lambda x: x[0])
     info_url = speeds[0][1]["url"] if speeds[0][0] != float('inf') else fallback_mirror["url"]
-    server_url = info_url[:-16]
+    server_url = info_url[:-23] + source
+    info_url = server_url + "update_info.json"
     LOGGER.info(f"Use the downloaded server: {server_url}")
 
     def __post_init__(self):
@@ -378,6 +411,11 @@ class UIRenderer:
         self._draw_start()
         self.screen_reset()
         self.set_active(self.create_image())
+        
+        try:
+            self.hdmi_info = Path("/sys/class/extcon/hdmi/state").read_text().splitlines()[0]
+        except (FileNotFoundError, IndexError):
+            self.hdmi_info = 'HDMI=0'
 
     def screen_reset(self) -> None:
         for i in range(self.y_size):
@@ -436,7 +474,7 @@ class UIRenderer:
         self.active_draw = ImageDraw.Draw(self.active_image)
 
     def paint(self) -> None:
-        if self.hw_info == 3:
+        if self.hw_info == 3 and self.hdmi_info != "HDMI=1":
             rotated_image = self.active_image.rotate(90, expand=True)
             rgba_data = rotated_image.tobytes()
             temp_width, temp_height = rotated_image.size
@@ -716,7 +754,7 @@ class UIRenderer:
         center_x, center_y = self.x_size // 2, self.y_size // 2 - 40
         radius = 40
         current_time = time.time()
-        rotation = (current_time * 180) % 360
+        rotation = (current_time * 90) % 360
     
         outer_radius = radius
         inner_radius = radius - 8
@@ -729,7 +767,7 @@ class UIRenderer:
             start_rad = math.radians(start_angle)
             end_rad = math.radians(end_angle)
             
-            angle = rotation + i * 45
+            angle = rotation - i * 45
             rad = angle * 3.14159 / 180
             dot_x = center_x + radius * math.cos(rad)
             dot_y = center_y + radius * math.sin(rad)
@@ -950,18 +988,6 @@ class Updater:
             LOGGER.warning(f"Version file not found: {ver_file}")
         except Exception as e:
             LOGGER.error("Error reading version file: %s", e)
-        return "Unknown"
-
-    def read_current_os_version(self) -> str:
-        try:
-            ver_file = Path(self.cfg.os_ver_cfg_path)
-            if ver_file.exists():
-                ver = ver_file.read_text().splitlines()[0]
-                LOGGER.info("Current OS Date version: %s", ver)
-                return ver
-            LOGGER.warning(f"OS Date version file not found: {ver_file}")
-        except Exception as e:
-            LOGGER.error("Error reading OS Date version file: %s", e)
         return "Unknown"
 
     def fetch_remote_info(self) -> dict:
@@ -1599,14 +1625,21 @@ class Updater:
         LOGGER.info("Starting MOD OS update process")
         self.draw_message_center(t.t("Downloading"), t.t("Fetching verification data..."), "㊙", "info")
 
-        tmp_space = shutil.disk_usage("/tmp")
-        mmc_space = shutil.disk_usage("/mnt/mmc")
-        sdcard_space = shutil.disk_usage("/mnt/sdcard")
+        tmp_space = shutil.disk_usage("/tmp").free
+        mmc_space = shutil.disk_usage("/mnt/mmc").free
+        sdcard_space = shutil.disk_usage("/mnt/sdcard").free
         if tmp_space == sdcard_space:
             self.cfg.target_path = "/mnt/mmc/tmp" if mmc_space > tmp_space else "/tmp/tmp"
         else:
             self.cfg.target_path = "/mnt/mmc/tmp" if mmc_space > sdcard_space else "/mnt/sdcard/tmp"
         LOGGER.info("Starting update from path %s", self.cfg.target_path)
+
+        total_size = 1024 * 1024 * 1024
+        if max(tmp_space, mmc_space, sdcard_space) < total_size:
+            LOGGER.info("There is not enough free space on %s", self.cfg.target_path)
+            self.draw_message_center(t.t("Insufficient TF card space"), t.t("Please reserve 1GB of free space on TF1 or TF2"), "✘", "error")
+            shutil.rmtree(self.cfg.target_path)
+            MainApp.exit_cleanup(2, self.ui, self.cfg)
 
         if not os.path.exists(self.cfg.target_path):
             os.makedirs(self.cfg.target_path, exist_ok=True)
@@ -1790,28 +1823,32 @@ class Updater:
             with zipfile.ZipFile(dep_path, "r") as zip_ref:
                 namelist = zip_ref.namelist()
                 total_files = len(namelist)
+                last_percent = -1
                 LOGGER.info("Unpacking %s files from %s", total_files, dep_path)
                 for i, file in enumerate(namelist):
                     zip_ref.extract(file, target_path)
                     percent = (i + 1) * 100 / max(1, total_files)
 
-                    ui = self.ui
-                    ui.clear()
-                    ui.info_header(self.t.t("System Update"), self.t.t("Extracting files..."))
+                    if percent != last_percent:
+                        last_percent = percent
+                        ui = self.ui
+                        ui.clear()
+                        ui.info_header(self.t.t("System Update"), self.t.t("Extracting files..."))
 
-                    file_name = os.path.basename(file)
-                    if len(file_name) > 30:
-                        file_name = file_name[:27] + "..."
+                        file_name = os.path.basename(file)
+                        if len(file_name) > 30:
+                            file_name = file_name[:27] + "..."
 
-                    ui.text((ui.x_size // 2, ui.y_size // 2 - 20), f"{self.t.t('File')}: {file_name}", font=18,
-                            anchor="mm")
+                        ui.text((ui.x_size // 2, ui.y_size // 2 - 20), f"{self.t.t('File')}: {file_name}", font=18,
+                                anchor="mm")
 
-                    progress_text = f"{i + 1} / {total_files} {self.t.t('files')}"
-                    ui.text((ui.x_size // 2, ui.y_size // 2 + 40), progress_text,
-                            font=16, anchor="mm", color=ui.cfg.COLOR_TEXT_SECONDARY)
+                        progress_text = f"{i + 1} / {total_files} {self.t.t('files')}"
+                        ui.text((ui.x_size // 2, ui.y_size // 2 + 40), progress_text,
+                                font=16, anchor="mm", color=ui.cfg.COLOR_TEXT_SECONDARY)
 
-                    ui.progress_bar(ui.y_size // 2 + 10, percent)
-                    ui.paint()
+                        ui.progress_bar(ui.y_size // 2 + 10, percent)
+                        ui.paint()
+
             LOGGER.info("Unpacking completed successfully")
             return 0
         except zipfile.BadZipFile:
@@ -1976,11 +2013,10 @@ fi
         update_active = False
         append_active = False
 
-        os_cur_ver = self.updater.read_current_os_version()
         if (
                 cur_ver != "Unknown" and update_ver != "Unknown" and cur_ver < base_ver and bool(update_file_list)
         ) or (
-                cur_ver == "Unknown" and os_cur_ver >= "20250211" and update_ver != "Unknown" and bool(update_file_list)
+                cur_ver == "Unknown" and os_cur_ver >= base_date and update_ver != "Unknown" and bool(update_file_list)
         ):
             update_active = True
             new_ver = update_ver
