@@ -33,6 +33,18 @@ Stock OS Modification is a project built on the StockOS of Anbernic, which is en
    You can use the script I provided to complete the flashing process. Please place the image file and script file in the same path, run the script, and follow the prompts to complete the subsequent operations. Please ensure that gdisk is installed before use:
    - Solution: https://github.com/cbepx-me/Anbernic-H700-RG-xx-StockOS-Modification/blob/main/flash_dd_with_gpt.sh
 
+## Troubleshooting
+### No partitions after flashing with script - Linux
+If the storage medium seems to have no partitions in place, you should zero the device and manually format to `FAT32`, then try burning the image again.
+
+```bash
+$ sudo dd if=/dev/zero of=/path/to/device bs=32M status=progress conv=fdata
+$ sync
+$ sudo mkfs.fat -F 32 /path/to/device           
+$ ./flash_dd_with_gpt.sh
+```
+
+
 ## PortMaster related issues should be raised here:
 https://github.com/kai4man/PortMaster-for-StockOS-MOD
 
