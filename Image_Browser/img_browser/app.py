@@ -51,7 +51,7 @@ def update() -> None:
     else:
         input.check()
 
-    if input.key("MENUF"):
+    if input.key("SELECT"):
         gr.draw_log(
             f"{translator.translate('Exiting...')}", fill=gr.colorBlue, outline=gr.colorBlueD1
         )
@@ -171,7 +171,7 @@ def handle_browser_input() -> None:
 
     gr.button_circle((120, button_y), "B", f"{translator.translate('Back')}")
     gr.button_circle((button_x-170, button_y), "Y", f"{translator.translate('Switch')} TF: {an.get_sd_storage()}")
-    gr.button_circle((button_x, button_y), "M", f"{translator.translate('Exit')}")
+    gr.button_rectangle((button_x-20, button_y), "SEL", f"{translator.translate('Exit')}")
 
     gr.draw_paint()
 

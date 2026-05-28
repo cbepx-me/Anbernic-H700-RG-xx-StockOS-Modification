@@ -5,6 +5,7 @@ from language import Translator
 from systems import systems
 from pathlib import Path
 import subprocess
+import filecmp
 
 translator = Translator()
 HW_MODEL = Path("/mnt/vendor/oem/board.ini").read_text().splitlines()[0].strip()
@@ -131,10 +132,18 @@ def handle_timezone(value):
 
 def handle_mode(value):
     """处理 RetroArch 运行模式"""
-    if value in ("0", "1"):
+    if value in ("0", "1", "2"):
         set_setting("ra.mode", value)
     else:
         print(f"Invalid mode value: {value}")
+
+
+def handle_ra_cfg(value):
+    """处理 RetroArch cfg 模式"""
+    if value in ("0", "1"):
+        set_setting("ra.cfg", value)
+    else:
+        print(f"Invalid ra_cfg value: {value}")
 
 
 def handle_ra_hot(value):
@@ -225,23 +234,49 @@ def handle_ra_com(value):
 
 def handle_ra_turbo(value):
     """处理 RetroArch 连发键"""
-    hw_key = 1 if HW_MODEL in ["RG35xxH", "RG40xxH", "RG40xxV", "RGcubexx", "RG34xxSP", "RG35xxPRO"] else 0
-    key_map = {
-        "0": "0",  # A
-        "1": "1",  # B
-        "2": "2",  # Y
-        "3": "3",  # X
-        "4": "4",  # L1
-        "5": "5",  # R1
-        "6": "10" if hw_key else "9",  # L2
-        "7": "11" if hw_key else "10",  # R2
-        "8": "9",  # L3
-        "9": "12"  # R3
-    }
+    if HW_MODEL in ["RG35xxH", "RG40xxH", "RGcubexx", "RG34xxSP", "RG35xxPRO"]:
+        key_map = {
+            "0": "0",  # A
+            "1": "1",  # B
+            "2": "2",  # Y
+            "3": "3",  # X
+            "4": "4",  # L1
+            "5": "5",  # R1
+            "6": "10",  # L2
+            "7": "11",  # R2
+            "8": "9",  # L3
+            "9": "12"  # R3
+        }
+    elif HW_MODEL in ["RG40xxV"]:
+        key_map = {
+            "0": "0",  # A
+            "1": "1",  # B
+            "2": "2",  # Y
+            "3": "3",  # X
+            "4": "4",  # L1
+            "5": "5",  # R1
+            "6": "10",  # L2
+            "7": "11",  # R2
+            "8": "9"  # L3
+        }
+    else:
+            key_map = {
+            "0": "0",  # A
+            "1": "1",  # B
+            "2": "2",  # Y
+            "3": "3",  # X
+            "4": "4",  # L1
+            "5": "5",  # R1
+            "6": "9",  # L2
+            "7": "10",  # R2
+        }
+
     tk_cfg = Path("/mnt/mod/ctrl/configs/tk.cfg")
     retroarch_cfg = Path("/.config/retroarch/retroarch.cfg")
 
-    if value == "10":  # Disable
+    if value in key_map:
+        tk_cfg.write_text(key_map[value])
+    else:
         if tk_cfg.exists():
             tk_cfg.unlink()
         # 更新 RetroArch 配置
@@ -252,9 +287,6 @@ def handle_ra_turbo(value):
             retroarch_cfg.write_text(content)
         except Exception as e:
             print(f"Error updating retroarch.cfg: {str(e)}")
-    elif value in key_map:
-        tk_cfg.write_text(key_map[value])
-    else:
         print(f"Invalid ra_turbo value: {value}")
 
 
@@ -355,6 +387,17 @@ class Set:
     def get_menu_option(self, menu_name: str) -> list[str]:
         for system in systems:
             if system["menu"] == menu_name:
+                if HW_MODEL not in ["RG35xxH", "RG40xxH", "RGcubexx", "RG34xxSP", "RG35xxPRO"]:
+                    options_list = system["options"]
+                    if HW_MODEL == "RG40xxV":
+                        if "menu.ra_turbo.9" in options_list:
+                            options_list.remove("menu.ra_turbo.9")
+                    else:
+                        if "menu.ra_turbo.8" in options_list:
+                            options_list.remove("menu.ra_turbo.8")
+                        if "menu.ra_turbo.9" in options_list:
+                            options_list.remove("menu.ra_turbo.9")
+                    return options_list
                 return system["options"]
         return []
 
@@ -365,12 +408,12 @@ class Set:
                 return help_list[opt_select]
         return []
 
-    def get_menu_operation(self, opt_select, menu_name: str) -> list[str]:
+    def get_menu_operation(self, opt_select, menu_name: str) -> str:
         for system in systems:
             if system["menu"] == menu_name:
                 operation_list = system["operations"]
                 return operation_list[opt_select]
-        return []
+        return ""
 
     def execute_command(self, command):
         if not command:
@@ -381,6 +424,7 @@ class Set:
             "lang": handle_lang,
             "mode": handle_mode,
             "timezone": handle_timezone,
+            "ra_cfg": handle_ra_cfg,
             "ra_hot": handle_ra_hot,
             "rtgg": handle_rtgg,
             "shader": handle_shader,
@@ -423,3 +467,212 @@ class Set:
             return True, ""
 
         return False, "No valid command!"
+
+    def get_current_option_index(self, menu_name: str) -> int:
+        """根据当前系统状态获取菜单项对应的选项索引"""
+        # 获取该菜单的所有操作命令列表
+        ops = self.get_menu_operation_list(menu_name)  # 需新写一个只返回 operations 的方法
+        if not ops:
+            return 0
+
+        # 根据菜单类型判断当前值
+        if menu_name == "menu.0-lang":
+            # 读取语言文件 /mnt/vendor/oem/language.ini 的值
+            try:
+                lang_index = int(Path("/mnt/vendor/oem/language.ini").read_text().strip())
+                # 语言索引对应关系（与 handle_lang 一致）
+                lang_codes = ["zh_CN", "zh_TW", "en_US", "ja_JP", "ko_KR", "es_LA", "ru_RU", "de_DE", "fr_FR", "pt_BR"]
+                code = lang_codes[lang_index]
+                for i, op in enumerate(ops):
+                    if op.endswith(code):
+                        return i
+            except:
+                pass
+            return 0
+
+        elif menu_name == "menu.timezone":
+            try:
+                cur_tz = Path("/etc/timezone").read_text().strip()
+                for i, op in enumerate(ops):
+                    if op.endswith(cur_tz):
+                        return i
+            except:
+                pass
+            return 0
+
+        elif menu_name == "menu.1-mode":
+            val = get_setting("ra.mode") or "0"
+            for i, op in enumerate(ops):
+                if op.endswith(val):
+                    return i
+            return 0
+
+        elif menu_name == "menu.ra_cfg":
+            val = get_setting("ra.cfg") or "0"
+            for i, op in enumerate(ops):
+                if op.endswith(val):
+                    return i
+            return 0
+
+        elif menu_name == "menu.ra_hot":
+            val = get_setting("ra.hotkey") or "0"
+            for i, op in enumerate(ops):
+                if op.endswith(val):
+                    return i
+            return 0
+
+        elif menu_name == "menu.ra_turbo":
+            tk_cfg = Path("/mnt/mod/ctrl/configs/tk.cfg")
+            if tk_cfg.exists():
+                val = tk_cfg.read_text().strip()
+                if HW_MODEL in ["RG35xxH", "RG40xxH", "RGcubexx", "RG34xxSP", "RG35xxPRO"]:
+                    reverse_map = {
+                        "0": "0", "1": "1", "2": "2", "3": "3", "4": "4", "5": "5",
+                        "10": "6", "11": "7", "9": "8", "12": "9"
+                    }
+                elif HW_MODEL == "RG40xxV":
+                    reverse_map = {
+                        "0": "0", "1": "1", "2": "2", "3": "3", "4": "4", "5": "5",
+                        "10": "6", "11": "7", "9": "8"
+                    }
+                else:
+                    reverse_map = {
+                        "0": "0", "1": "1", "2": "2", "3": "3", "4": "4", "5": "5",
+                        "9": "6", "10": "7"
+                    }
+
+                if str(val) in reverse_map:
+                    return int(reverse_map[str(val)])
+                else:
+                    return -1
+            else:
+                return -1
+
+        elif menu_name == "menu.ra_com":
+            lr_cfg = Path("/mnt/mod/ctrl/configs/lr.cfg")
+            if lr_cfg.exists():
+                val = lr_cfg.read_text().strip()
+                # mapping: {"0": "5:0", "1": "5:1", "2": "4:0", "3": "4:1", "4": ""}
+                mapping = {"5:0": "0", "5:1": "1", "4:0": "2", "4:1": "3"}
+                mapped = mapping.get(val, "4")
+                for i, op in enumerate(ops):
+                    if op.endswith(mapped):
+                        return i
+            else:
+                return 4  # 禁用
+            return 4
+
+        elif menu_name in ["menu.shader", "menu.bezel", "menu.dark", "menu.varc", "menu.aca", "menu.als", "menu.rtgg"]:
+            key_map = {
+                "menu.shader": "global.shader",
+                "menu.bezel": "global.bezel",
+                "menu.dark": "global.dark",
+                "menu.varc": "varcade.vertical",
+                "menu.aca": "arcade.auto",
+                "menu.als": "global.load",
+                "menu.rtgg": "global.spy"
+            }
+            key = key_map.get(menu_name)
+            if key:
+                val = get_setting(key) or "0"
+                for i, op in enumerate(ops):
+                    if op.endswith(val):
+                        return i
+            return 0
+
+        elif menu_name in ["menu.samba", "menu.ssh", "menu.syn"]:
+            key_map = {
+                "menu.samba": "global.samba",
+                "menu.ssh": "global.ssh",
+                "menu.syn": "global.syncthing"
+            }
+            key = key_map.get(menu_name)
+            # 读取配置值，同时检查服务实际状态（兼容临时启用状态）
+            cfg_val = get_setting(key) or "0"
+            # 若配置为 0 但服务正在运行，可能为临时启用（值应为 2）
+            if cfg_val == "0":
+                service_map = {
+                    "menu.samba": "smbd",
+                    "menu.ssh": "ssh",
+                    "menu.syn": "syncthing"
+                }
+                svc = service_map.get(menu_name)
+                if svc:
+                    # 简单检查进程是否存在
+                    code = subprocess.run(["pgrep", "-f", svc], capture_output=True)
+                    if code.returncode == 0:
+                        cfg_val = "2"  # 临时启用
+            for i, op in enumerate(ops):
+                if op.endswith(cfg_val):
+                    return i
+            return 0
+
+        elif menu_name == "menu.led":
+            # 通过 work_led 文件和配置文件综合判断
+            led_file = Path("/sys/class/power_supply/axp2202-battery/work_led")
+            boot_cfg = Path(G_DIR) / "led_boot.cfg"
+            if led_file.exists():
+                try:
+                    val = led_file.read_text().strip()
+                    if val == "0":
+                        # 可能为 OFF 或 AUTO
+                        if boot_cfg.exists() and boot_cfg.read_text().strip() == "0":
+                            return 0  # OFF
+                        else:
+                            return 2  # AUTO
+                    else:
+                        return 1  # ON
+                except:
+                    pass
+            return 0
+
+        elif menu_name == "menu.p_key":
+            val = get_setting("power.key") or "0"
+            for i, op in enumerate(ops):
+                if op.endswith(val):
+                    return i
+            return 0
+
+        elif menu_name == "menu.a_lock":
+            val = get_setting("power.lock") or "0"
+            for i, op in enumerate(ops):
+                if op.endswith(val):
+                    return i
+            return 0
+
+        elif menu_name == "menu.hdmi":
+            val = get_setting("power.hdmi") or "0"
+            for i, op in enumerate(ops):
+                if op.endswith(val):
+                    return i
+            return 0
+
+        elif menu_name == "menu.sfont":
+            # 通过 /mnt/vendor/bin/default.ttf 是哪个文件来判断
+            dest = Path("/mnt/vendor/bin/default.ttf")
+            default = Path(G_DIR) / "default.ttf"
+            big = Path(G_DIR) / "big.ttf"
+            if filecmp.cmp(dest, default, shallow=True):
+                return 0
+            elif filecmp.cmp(dest, big, shallow=True):
+                return 1
+            else:
+                return 2
+
+        # 默认返回 0
+        return 0
+
+    def get_current_option_text(self, menu_name: str) -> str:
+        """获取当前选项的显示文本（已翻译）"""
+        idx = self.get_current_option_index(menu_name)
+        options = self.get_menu_option(menu_name)
+        if idx < len(options):
+            return translator.translate(options[idx])
+        return ""
+
+    def get_menu_operation_list(self, menu_name: str) -> list:
+        """直接返回 operations 列表"""
+        for system in systems:
+            if system["menu"] == menu_name:
+                return system["operations"]
+        return []

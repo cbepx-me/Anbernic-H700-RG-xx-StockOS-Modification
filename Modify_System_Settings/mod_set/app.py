@@ -18,6 +18,7 @@ menu_selected_position = 0
 opt_selected_position = 0
 selected_menu = ""
 current_window = "menu"
+current_option_index = {}
 help_txt = ""
 skip_input_check = True
 set = Set()
@@ -30,7 +31,7 @@ except (FileNotFoundError, IndexError):
 
 x_size, y_size, max_elem = screen_resolutions.get(hw_info, (640, 480, 7))
 
-button_x = x_size - 110
+button_x = x_size - 140
 button_y = y_size - 30
 ratio = y_size / x_size
 
@@ -41,7 +42,8 @@ elif hw_info == 3:
 else:
     remove_lists = []
 
-mode_lists = ['menu.ra_hot', 'menu.ra_turbo', 'menu.ra_com', 'menu.shader', 'menu.bezel', 'menu.dark', 'menu.varc', 'menu.aca', 'menu.als']
+mode1_lists = ['menu.ra_hot', 'menu.ra_turbo', 'menu.ra_com', 'menu.shader', 'menu.bezel', 'menu.dark', 'menu.varc', 'menu.aca', 'menu.als']
+mode2_lists = ['menu.ra_hot', 'menu.ra_turbo', 'menu.ra_com', 'menu.shader', 'menu.bezel', 'menu.dark', 'menu.varc', 'menu.aca', 'menu.als', "menu.rtgg", "menu.ra_cfg"]
 
 def is_connected():
     test_servers = [
@@ -81,7 +83,7 @@ def update() -> None:
     else:
         input.check()
 
-    if input.key("MENUF"):
+    if input.key("SELECT"):
         gr.draw_log(
             f"{translator.translate('Exiting...')}", fill=gr.colorBlue, outline=gr.colorBlueD1
         )
@@ -126,14 +128,17 @@ def load_menu_menu() -> None:
         selected_menu, \
         current_window, \
         skip_input_check
-
     all_menu = set.get_all_menus()
     for remove_list in remove_lists:
         if all_menu.count(remove_list)>0:
             all_menu.remove(remove_list)
 
     if get_setting("ra.mode") == "1":
-        for mode_list in mode_lists:
+        for mode_list in mode1_lists:
+            if all_menu.count(mode_list)>0:
+                all_menu.remove(mode_list)
+    elif get_setting("ra.mode") == "2":
+        for mode_list in mode2_lists:
             if all_menu.count(mode_list)>0:
                 all_menu.remove(mode_list)
     if system_lang != "zh_CN":
@@ -148,6 +153,30 @@ def load_menu_menu() -> None:
     if all_menu:
         if input.key("DY"):
             menu_selected_position = (menu_selected_position + input.value) % len(all_menu)
+        elif input.key("DX"):
+            # 左右键切换当前选中项的选项值
+            direction = input.value  # 1 或 -1
+            current_menu = all_menu[menu_selected_position]
+            ops = set.get_menu_operation_list(current_menu)
+            if ops:
+                # 获取当前索引
+                idx = current_option_index.get(current_menu, set.get_current_option_index(current_menu))
+                # 计算新索引（循环）
+                new_idx = (idx + direction) % len(ops)
+                # 更新缓存
+                current_option_index[current_menu] = new_idx
+                # 立即执行对应的操作
+                command = ops[new_idx]
+                success, output = set.execute_command(command)
+                # 显示短暂提示
+                if success:
+                    status_msg = f"{translator.translate('Done')}: {translator.translate(current_menu)} -> {translator.translate(set.get_menu_option(current_menu)[new_idx])}"
+                    status_color = gr.colorBlue
+                else:
+                    status_msg = f"{translator.translate('Error')}: {translator.translate(output)}"
+                    status_color = gr.colorRed
+                gr.draw_log(status_msg, fill=status_color, outline=status_color, font=19)
+                gr.draw_paint()
         elif input.key("L1"):
             if menu_selected_position > 0:
                 menu_selected_position = max(0, menu_selected_position - max_elem)
@@ -170,27 +199,42 @@ def load_menu_menu() -> None:
             skip_input_check = True
             return
 
+    # 绘制界面
     gr.draw_clear()
-
     gr.draw_rectangle_r([10, 40, x_size - 10, y_size - 40], 15, fill=gr.colorGrayD2, outline=None)
-    gr.draw_text((x_size / 2, 20), f"{translator.translate('Modify System Settings')} v{ver} - {math.ceil((menu_selected_position + 1) / max_elem)} / {math.ceil(len(all_menu) / max_elem)}", font=23, anchor="mm")
+    gr.draw_text((x_size / 2, 20),
+                 f"{translator.translate('Modify System Settings')} v{ver} - {math.ceil((menu_selected_position + 1) / max_elem)} / {math.ceil(len(all_menu) / max_elem)}",
+                 font=23, anchor="mm")
 
     start_idx = int(menu_selected_position / max_elem) * max_elem
     end_idx = start_idx + max_elem
-    for i, system in enumerate(all_menu[start_idx:end_idx]):
-        gr.row_list(
-            translator.translate(system), (20, 50 + (i * 35)), x_size - 40, i == (menu_selected_position % max_elem)
+    for i, menu in enumerate(all_menu[start_idx:end_idx]):
+        # 获取当前选项索引
+        #if menu not in current_option_index:
+        current_option_index[menu] = set.get_current_option_index(menu)
+        idx = current_option_index[menu]
+        options = set.get_menu_option(menu)
+        right_text = ""
+        if idx < len(options):
+            right_text = translator.translate(options[idx])
+        selected = (i == (menu_selected_position % max_elem))
+        show_arrows = True
+        gr.row_list_dual(
+            translator.translate(menu),
+            right_text,
+            (20, 50 + (i * 35)),
+            x_size - 40,
+            selected,
+            show_arrows
         )
 
     help_txt = set.get_menu_help(all_menu[menu_selected_position])
-    gr.draw_help(
-        f"{translator.translate(help_txt)}", fill=gr.colorBlueD1, outline=gr.colorBlueD1
-    )
-    
+    gr.draw_help(f"{translator.translate(help_txt)}", fill=gr.colorBlueD1, outline=gr.colorBlueD1)
+
     ip_address = get_wlan0_ip()
-    gr.draw_text((x_size / 2, button_y + 12), f"IP: {ip_address}", font=21,  color=gr.colorGreen, anchor="mm")
+    gr.draw_text((x_size / 2, button_y + 12), f"IP: {ip_address}", font=21, color=gr.colorGreen, anchor="mm")
     gr.button_circle((30, button_y), "A", f"{translator.translate('Set')}")
-    gr.button_circle((button_x, button_y), "M", f"{translator.translate('Exit')}")
+    gr.button_rectangle((button_x, button_y), "SEL", f"{translator.translate('Exit')}")
 
     gr.draw_paint()
 
@@ -308,7 +352,7 @@ def load_options_menu() -> None:
 
     gr.button_circle((30, button_y), "A", f"{translator.translate('Select')}")
     gr.button_circle((200, button_y), "B", f"{translator.translate('Back')}")
-    gr.button_circle((button_x, button_y), "M", f"{translator.translate('Exit')}")
+    gr.button_rectangle((button_x, button_y), "SEL", f"{translator.translate('Exit')}")
 
     gr.draw_paint()
 

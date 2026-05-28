@@ -23,6 +23,15 @@
       "operations": ["restore:sys", "restore:emu", "restore:save"]
     },
     {
+      "menu": "menu.rescue",
+      "menu_help": "menu.rescue.help",
+      "options": ["menu.rescue.open"],
+      "opt_help": [
+        "menu.rescue.opt.open"
+      ],
+      "operations": ["tools:ra"]
+    },
+    {
       "menu": "menu.random",
       "menu_help": "menu.random.help",
       "options": ["menu.random.all", "menu.random.favo", "menu.random.hist", "menu.random.add", "menu.random.del"],

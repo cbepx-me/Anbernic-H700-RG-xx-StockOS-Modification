@@ -45,15 +45,34 @@
       "menu_help": "menu.mode.help",
       "options": [
         "menu.mode.0",
-        "menu.mode.1"
+        "menu.mode.1",
+        "menu.mode.2"
       ],
       "opt_help": [
         "menu.mode.opt.0",
-        "menu.mode.opt.1"
+        "menu.mode.opt.1",
+        "menu.mode.opt.2"
       ],
       "operations": [
         "mode:0",
-        "mode:1"
+        "mode:1",
+        "mode:2"
+      ]
+    },
+    {
+      "menu": "menu.ra_cfg",
+      "menu_help": "menu.ra_cfg.help",
+      "options": [
+        "menu.ra_cfg.0",
+        "menu.ra_cfg.1"
+      ],
+      "opt_help": [
+        "menu.ra_cfg.opt.0",
+        "menu.ra_cfg.opt.1"
+      ],
+      "operations": [
+        "ra_cfg:0",
+        "ra_cfg:1"
       ]
     },
     {

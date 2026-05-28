@@ -29,7 +29,7 @@ except (FileNotFoundError, IndexError):
 
 x_size, y_size, max_elem = screen_resolutions.get(hw_info, (640, 480, 7))
 
-button_x = x_size - 110
+button_x = x_size - 140
 button_y = y_size - 30
 ratio = y_size / x_size
 
@@ -55,7 +55,7 @@ def update() -> None:
     else:
         input.check()
 
-    if input.key("MENUF"):
+    if input.key("SELECT"):
         gr.draw_log(
             f"{translator.translate('Exiting...')}", fill=gr.colorBlue, outline=gr.colorBlueD1
         )
@@ -116,7 +116,7 @@ def load_menu_menu() -> None:
     )
 
     gr.button_circle((30, button_y), "A", f"{translator.translate('Select')}")
-    gr.button_circle((button_x, button_y), "M", f"{translator.translate('Exit')}")
+    gr.button_rectangle((button_x, button_y), "SEL", f"{translator.translate('Exit')}")
 
     gr.draw_paint()
 
@@ -218,6 +218,6 @@ def load_options_menu() -> None:
     gr.button_circle((150, button_y), "B", f"{translator.translate('Back')}")
     if menu_selected_position < 2:
         gr.button_circle((270, button_y), "Y", f"{translator.translate('Save in')} TF: {an.get_sd_storage()}")
-    gr.button_circle((button_x, button_y), "M", f"{translator.translate('Exit')}")
+    gr.button_rectangle((button_x, button_y), "SEL", f"{translator.translate('Exit')}")
 
     gr.draw_paint()

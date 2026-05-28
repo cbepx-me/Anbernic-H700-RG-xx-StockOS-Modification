@@ -110,6 +110,42 @@ case $1 in
             ;;
         esac
     ;;
+
+    ra) # Rescue retroarch
+        for MPATH in sdcard mmc
+        do
+            BACKUP_FILE="/mnt/${MPATH}/anbernic/backup/rescue.bak"
+            if [ -f $BACKUP_FILE ]; then
+                tar -xmf $BACKUP_FILE -C /
+                user_quit
+            fi
+        done
+        if [ -f "$(dirname "$0")"/ra_cfg.zip ]; then
+            unzip -oq "$(dirname "$0")"/ra_cfg.zip -d /tmp
+            UPDATE_DIR=/tmp/ra_cfg
+            if [ -d $UPDATE_DIR ]; then
+                ROOT_DIR=/.config/retroarch
+                RA_ORI_CFG=/mnt/vendor/deep/retro/retroarch.cfg
+                board_info=$(head -n 1 /mnt/vendor/oem/board.ini)
+                
+                rm -rf $ROOT_DIR/retroarch*.cfg
+                rm -f /mnt/vendor/ctrl/setRA.sh
+                cp -f "$UPDATE_DIR/retroarch_${board_info}.cfg" $RA_ORI_CFG
+                cp -f "$UPDATE_DIR/setRA.sh" /mnt/vendor/ctrl/setRA.sh
+                cp -f /mnt/mod/ctrl/configs/default.ttf /mnt/vendor/bin/default.ttf
+                chmod 755 /mnt/mod/ctrl/RA_launch.sh
+                chmod 755 /mnt/vendor/ctrl/setRA.sh
+                
+                LANG=$(head -n 1 /mnt/vendor/oem/language.ini)
+                RA_lang=(12 11 0 1 10 3 9 4 2 7)
+                /mnt/vendor/ctrl/setRA.sh rest
+                /mnt/vendor/ctrl/setRA.sh adv
+                if [[ $LANG -ge 0 && $LANG -lt ${#RA_lang[@]} ]]; then
+                    /mnt/vendor/ctrl/setRA.sh language ${RA_lang[${LANG}]}
+                fi
+            fi
+        fi
+    ;;
 esac
 
 user_quit

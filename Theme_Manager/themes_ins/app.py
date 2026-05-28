@@ -21,7 +21,7 @@ selected_system = ""
 current_window = "console"
 an = Anbernic()
 themes = Themes()
-skip_input_check = True
+skip_input_check = False
 
 x_size, y_size, max_elem = screen_resolutions.get(hw_info, (640, 480, 9))
 
@@ -56,7 +56,7 @@ def update() -> None:
     else:
         input.check()
 
-    if input.key("MENUF"):
+    if input.key("SELECT"):
         gr.draw_log(
             f"{translator.translate('Exiting...')}", fill=gr.colorBlue, outline=gr.colorBlueD1
         )
@@ -105,7 +105,6 @@ def load_console_menu() -> None:
                 files = [
                     "/mnt/vendor/res1/",
                     "/mnt/vendor/res2/",
-                    "/mnt/vendor/res3/",
                     "/mnt/vendor/bin/default.ttf"
                 ]
                 files_to_compress = []
@@ -200,7 +199,7 @@ def load_console_menu() -> None:
 
     gr.button_circle((button_x - 300, button_y), "X", f"{translator.translate('Help')}")
     gr.button_circle((button_x - 170, button_y), "Y", f"{translator.translate('Switch')} TF: {an.get_sd_storage()}")
-    gr.button_circle((button_x, button_y), "M", f"{translator.translate('Exit')}")
+    gr.button_rectangle((button_x, button_y), "SEL", f"{translator.translate('Exit')}")
 
     gr.draw_paint()
 
@@ -316,7 +315,7 @@ def load_theme_menu() -> None:
     gr.button_circle((20, button_y), "A", f"{translator.translate('Install')}")
     gr.button_circle((120, button_y), "B", f"{translator.translate('Back')}")
     gr.button_circle((button_x - 170, button_y), "Y", f"{translator.translate('Switch')} TF: {an.get_sd_storage()}")
-    gr.button_circle((button_x, button_y), "M", f"{translator.translate('Exit')}")
+    gr.button_rectangle((button_x, button_y), "SEL", f"{translator.translate('Exit')}")
 
     gr.draw_paint()
 
@@ -415,7 +414,7 @@ def load_logo_menu() -> None:
     gr.button_circle((20, button_y), "A", f"{translator.translate('Set')}")
     gr.button_circle((140, button_y), "B", f"{translator.translate('Back')}")
     gr.button_circle((260, button_y), "X", f"{translator.translate('Ran. disp')}: {translator.translate(cf.get_config('boot.logo'))}")
-    gr.button_circle((button_x, button_y), "M", f"{translator.translate('Exit')}")
+    gr.button_rectangle((button_x, button_y), "SEL", f"{translator.translate('Exit')}")
 
     gr.draw_paint()
 
@@ -438,7 +437,7 @@ def load_help_menu() -> None:
     )
 
     gr.button_circle((20, button_y), "B", f"{translator.translate('Back')}")
-    gr.button_circle((button_x, button_y), "M", f"{translator.translate('Exit')}")
+    gr.button_rectangle((button_x, button_y), "SEL", f"{translator.translate('Exit')}")
 
     gr.draw_paint()
 

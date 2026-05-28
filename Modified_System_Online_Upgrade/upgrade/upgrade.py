@@ -33,7 +33,7 @@ from urllib.error import ContentTooShortError, URLError
 # =========================
 from PIL import Image, ImageDraw, ImageFont
 
-cur_app_ver = "2.0.2"
+cur_app_ver = "3.0.1"
 base_ver = "3.8.0"
 base_date = "20250211"
 source = "source/"
@@ -53,7 +53,6 @@ logging.basicConfig(
     handlers=[logging.FileHandler(LOG_FILE), logging.StreamHandler(sys.stdout)],
 )
 LOGGER = logging.getLogger("upgrade")
-LOGGER.info(f">>>")
 LOGGER.info(f"=== Start Log ===")
 
 def read_current_os_version() -> str:
@@ -198,11 +197,6 @@ class Config:
     }
 
     mirrors = [
-        {
-            "name": "localhost",
-            "url": "http://192.168.1.9/source/update_info.json",
-            "region": "local"
-        },
         {
             "name": "GitHub",
             "url": "https://github.com/cbepx-me/upgrade/releases/download/source/update_info.json",
@@ -658,7 +652,7 @@ class UIRenderer:
         font_path = self.cfg.font_file
         try:
             fnt = ImageFont.truetype(font_path, 18)
-        except Exception:
+        except:
             fnt = ImageFont.load_default()
 
         bbox = self.active_draw.textbbox((0, 0), text, font=fnt)
@@ -669,7 +663,7 @@ class UIRenderer:
         badge_rect = [x - text_width // 2, y - text_height // 2,
                       x + text_width // 2, y + text_height // 2]
 
-        self.rect(badge_rect, fill=color, radius=text_height // 2, shadow=True)
+        self.rect(badge_rect, fill=color, radius=int(text_height) // 2, shadow=True)
         self.text((x, y), text, font=18, anchor="mm", color=self.cfg.COLOR_TEXT, bold=True)
 
     def progress_bar(self, y_center: int, percent: float, label_top: Optional[str] = None,
@@ -1108,13 +1102,13 @@ class Updater:
         start_x += button_width + button_spacing
 
         ui.button([start_x, button_y, start_x + button_width, button_y + button_height],
-                  t.t("Exit"), "B", False)
+                  t.t("Exit"), "SE", False)
 
         tip_y = status_y + 50
         if actions_enabled:
-            tip_text = t.t("Tip: Press A to start update • Y for info • B to exit")
+            tip_text = t.t("Tip: Press A to start update • Y for info • SELECT to exit")
         else:
-            tip_text = t.t("Tip: Y for update info • B to exit")
+            tip_text = t.t("Tip: Y for update info • SELECT to exit")
 
         ui.text((ui.x_size // 2, tip_y), tip_text, font=18, anchor="mm",
                 color=ui.cfg.COLOR_TEXT_TERTIARY)
@@ -1496,104 +1490,6 @@ class Updater:
                         lines, text_x, panel_height, text_width, font, current_page
                     )
 
-    def update_app(self, new_ver: str, update_url: str, update_md5: str) -> None:
-        ui = self.ui
-        t = self.t
-
-        ui.clear()
-        self.ui.text((self.ui.x_size // 2, self.ui.y_size // 2),
-                     f"{t.t('Update the application')} v{cur_app_ver} -> v{new_ver}", font=26, anchor="mm", bold=True)
-        ui.paint()
-        time.sleep(3)
-
-        def progress_hook(block_num: int, block_size: int, total_size: int, num_file=None):
-            try:
-                downloaded = block_num * block_size
-                if total_size > 0:
-                    percent = min(100, downloaded * 100 // total_size)
-                    label_top = t.t("Downloading App Files...") + num_file
-                    if total_size >= 1024 * 1024:
-                        unit_num = 1024 * 1024
-                        unit = "MB"
-                    else:
-                        unit_num = 1024
-                        unit = "KB"
-                    speed_display = self._calculate_speed(downloaded)
-                    label_bottom = f"{(downloaded / unit_num):.1f}{unit} / {(total_size / unit_num):.2f}{unit} | {speed_display}"
-                    ui.clear()
-                    ui.info_header(t.t("Update application"), t.t("Downloading update package"))
-                    ui.text((ui.x_size // 2, ui.y_size - 120),
-                            t.t("Tip: Press any key to cancel the download and return to the main menu"),
-                            font=22, anchor="mm", color=ui.cfg.COLOR_SECONDARY)
-                    ui.progress_bar(ui.y_size // 2 + 20, percent, label_top=label_top, label_bottom=label_bottom)
-                    ui.paint()
-            except Exception as e:
-                LOGGER.error("Error updating progress: %s", e)
-
-        LOGGER.info("Starting upgrade app process")
-        self.draw_message_center(t.t("Downloading"), t.t("Fetching verification data..."), "㊙", "info")
-
-        download_result = self._download_file(update_url, self.cfg.tmp_app_update, progress_hook, '(1/1)')
-
-        if download_result == "cancelled":
-            LOGGER.info("App update cancelled by user")
-            self.draw_message_center(t.t("Download Cancelled"), t.t("Returning to main menu..."), "☹", "info")
-            time.sleep(2)
-            return
-
-        if not download_result:
-            LOGGER.error(f"Error downloading update file: {update_url}")
-            self.draw_message_center(t.t("Download Error"), t.t("Failed to download update file."), "✘", "error")
-            MainApp.exit_cleanup(2, self.ui, self.cfg)
-
-        LOGGER.info(f"Verifying downloaded files: {self.cfg.tmp_app_update}")
-        self.draw_message_center(t.t("Verifying"), t.t("Checking file integrity..."), "✪", "info")
-
-        down_md5 = ""
-
-        if os.path.exists(self.cfg.tmp_app_update):
-            try:
-                md5_hash = hashlib.md5()
-                with open(self.cfg.tmp_app_update, "rb") as f:
-                    for chunk in iter(lambda: f.read(4096), b""):
-                        md5_hash.update(chunk)
-                down_md5 = md5_hash.hexdigest().lower()
-                LOGGER.info("Calculated MD5 of update file: %s", down_md5)
-            except Exception as e:
-                LOGGER.error("Error calculating MD5: %s", e)
-                down_md5 = ""
-
-        if down_md5 and update_md5 and down_md5.upper() == update_md5.upper():
-            LOGGER.info("MD5 verification successful")
-            LOGGER.info("Application restart")
-            self.draw_message_center(t.t("Prompt message"), t.t("Updating, restart later..."), "㊙", "info")
-            time.sleep(2)
-            LOGGER.info("Restarting application for update...")
-            self._cleanup_before_restart()
-            MainApp.exit_not_cleanup(36)
-        else:
-            LOGGER.error("MD5 verification failed. Expected: %s, Got: %s", update_md5, down_md5)
-            self.draw_message_center(t.t("Verification Failed"), t.t("File integrity check failed."), "✘", "error")
-            MainApp.exit_cleanup(3, self.ui, self.cfg)
-
-    def _cleanup_before_restart(self):
-        """重启前的彻底清理"""
-        # 1. 停止所有线程
-        self._stop_all_threads()
-
-        # 2. 重置输入系统
-        self.input.reset()
-
-        # 3. 清理SDL资源
-        self.ui.draw_end()
-
-        # 4. 强制垃圾回收
-        import gc
-        gc.collect()
-
-        # 5. 小延迟确保资源释放
-        time.sleep(0.5)
-
     def start_update(self, update_file_list: list) -> None:
         ui = self.ui
         t = self.t
@@ -1617,7 +1513,7 @@ class Updater:
                     ui.text((ui.x_size // 2, ui.y_size - 120),
                             t.t("Tip: Press any key to cancel the download and return to the main menu"),
                             font=22, anchor="mm", color=ui.cfg.COLOR_SECONDARY)
-                    ui.progress_bar(ui.y_size // 2 + 20, percent, label_top=label_top, label_bottom=label_bottom)
+                    ui.progress_bar(ui.y_size // 2 - 20, percent, label_top=label_top, label_bottom=label_bottom)
                     ui.paint()
             except Exception as e:
                 LOGGER.error("Error updating progress: %s", e)
@@ -1753,7 +1649,7 @@ class Updater:
                     ui.text((ui.x_size // 2, ui.y_size - 120),
                             t.t("Tip: Press any key to cancel the download and return to the main menu"),
                             font=22, anchor="mm", color=ui.cfg.COLOR_SECONDARY)
-                    ui.progress_bar(ui.y_size // 2 + 20, percent, label_top=label_top, label_bottom=label_bottom)
+                    ui.progress_bar(ui.y_size // 2 - 20, percent, label_top=label_top, label_bottom=label_bottom)
                     ui.paint()
             except Exception as e:
                 LOGGER.error("Error updating progress: %s", e)
@@ -1893,16 +1789,6 @@ class MainApp:
         self.skip_first_input = True
 
     @staticmethod
-    def exit_not_cleanup(code: int) -> None:
-        LOGGER.info("Exiting with code %s", code)
-        try:
-            import sdl2
-            sdl2.SDL_Quit()
-        except Exception as e:
-            LOGGER.warning("Error cleaning up SDL: %s", e)
-        sys.exit(code)
-
-    @staticmethod
     def exit_cleanup(code: int, ui: UIRenderer, cfg: Config) -> None:
         LOGGER.info("Exiting with code %s", code)
         try:
@@ -1937,6 +1823,7 @@ fi
 """
                 with open(update_script_path, "w") as f:
                     f.write(update_script_content)
+                os.chmod(update_script_path, 0o755)
 
             ui.draw_end()
             os.sync()
@@ -1978,16 +1865,12 @@ fi
             progress=90
         )
 
-        app_ver = app_update_url = app_md5 = update_ver = data_ver = data_update_url = data_md5 = ""
+        update_ver = data_ver = data_update_url = data_md5 = ""
         update_file_list = []
 
         self.updater.update_info_dict = self.updater.fetch_remote_info()
 
-        if self.updater.update_info_dict.get('app'):
-            app_ver = self.updater.update_info_dict.get('app').get('version', 'Unknown')
-            app_update_url = self.cfg.server_url + self.updater.update_info_dict.get('app').get('filename')
-            app_md5 = self.updater.update_info_dict.get('app').get('md5')
-            LOGGER.info(f"app: v{app_ver}")
+        LOGGER.info(f"app: v{cur_app_ver}")
 
         if self.updater.update_info_dict.get('update'):
             update_file_dict = self.updater.update_info_dict.get('update')
@@ -2006,10 +1889,6 @@ fi
             LOGGER.info(f"data: v{data_ver}")
 
         update_info = self.updater.update_info_dict.get('update_info', 'Unknown')
-
-        if app_ver != "Unknown" and cur_app_ver < app_ver and bool(app_update_url):
-            self.updater.update_app(app_ver, app_update_url, app_md5)
-
         update_active = False
         append_active = False
 
@@ -2039,7 +1918,7 @@ fi
                 else:
                     self.input.poll()
 
-                if self.input.is_key("B"):
+                if self.input.is_key("SELECT"):
                     MainApp.exit_cleanup(0, self.ui, self.cfg)
 
                 elif update_active and self.input.is_key("A"):

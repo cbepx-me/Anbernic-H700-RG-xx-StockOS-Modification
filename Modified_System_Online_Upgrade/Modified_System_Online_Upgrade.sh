@@ -1,17 +1,17 @@
 #!/bin/bash
 
-version="2.0.2"
+version="1.0.0"
 progdir="$(cd $(dirname "$0") || exit; pwd)"
-program="${progdir}/upgrade/upgrade.py"
+program="${progdir}/upgrade/launcher.py"
 log_file="${progdir}/upgrade/log.txt"
 SCRIPT_NAME="$0"
 NEW_FILE="$progdir/upgrade/update.sh"
 APP_FILE="/tmp/app.tar.gz"
 
-pkill -f "upgrade.py" 2>/dev/null || true
+pkill -f "launcher.py" 2>/dev/null || true
 
 export PYSDL2_DLL_PATH="/usr/lib"
-/mnt/mod/ctrl/volumeCtrl.dge &
+
 while true
 do
     if [ -f "$NEW_FILE" ]; then
@@ -29,11 +29,13 @@ do
         tar -xf "$APP_FILE" -C "$progdir/"
         [ -f "$APP_FILE" ] && rm -rf "$APP_FILE"
     else
+        [ -f /mnt/mod/ctrl/volumeCtrl.dge ] && /mnt/mod/ctrl/volumeCtrl.dge &
         sleep 1
         $program > $log_file 2>&1
         if [ $? -ne 36 ]; then
             break
         fi
+        kill -9 $(pidof volumeCtrl.dge)
         sleep 1
     fi
 done

@@ -35,7 +35,7 @@ def check():
                         kvalue = -1
                     code = kcode
                     codeName = mapping.get(code, str(code))
-                    value = kvalue                        
+                    value = kvalue
                     return
 
 def key(keyCodeName, keyValue = 99):

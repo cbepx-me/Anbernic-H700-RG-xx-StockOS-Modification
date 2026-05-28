@@ -46,7 +46,7 @@ def update() -> None:
     else:
         input.check()
 
-    if input.key("MENUF"):
+    if input.key("B"):
         gr.draw_log(
             f"{translator.translate('Exiting...')}", fill=gr.colorBlue, outline=gr.colorBlueD1
         )
@@ -98,7 +98,7 @@ def handle_console_input() -> None:
         )
 
     gr.button_circle((30, button_y), "A", f"{translator.translate('Open')}")
-    gr.button_circle((button_x, button_y), "M", f"{translator.translate('Exit')}")
+    gr.button_circle((button_x, button_y), "B", f"{translator.translate('Exit')}")
 
     gr.draw_paint()
 
@@ -187,7 +187,7 @@ def handle_timer_input() -> None:
     gr.draw_text((x_pos, y_pos - 25), f"{hours:02d}:{minutes:02d}:{seconds:02d}", font=60, anchor="mm")
     gr.draw_text((x_pos, y_pos + 50), f"{translator.translate('At the end')}: {translator.translate(end_time)}", font=36, anchor="mm")
     gr.draw_text((x_pos, y_pos + 100), f"{translator.translate('Press DY to adjust, DX to switch setting')}", font=21, anchor="mm")
-    gr.draw_text((x_pos, y_pos + 150), f"{translator.translate('Press START to start, M/F to Exit')}", font=21, anchor="mm")
+    gr.draw_text((x_pos, y_pos + 150), f"{translator.translate('Press START to start, B to Back')}", font=21, anchor="mm")
     gr.draw_paint()
     
     while start_time is None:
@@ -242,7 +242,7 @@ def handle_timer_input() -> None:
             timer_duration = hours * 3600 + minutes * 60 + seconds + 1
             if timer_duration > 1:
                 start_time = time.time()
-        elif input.key("MENUF"):
+        elif input.key("B"):
             current_window = "console"
             skip_input_check = True
             gr.draw_clear()
@@ -253,7 +253,7 @@ def handle_timer_input() -> None:
         gr.draw_text((x_pos, y_pos - 25), f"{hours:02d}:{minutes:02d}:{seconds:02d}", font=60, anchor="mm")
         gr.draw_text((x_pos, y_pos + 50), f"{translator.translate('At the end')}: {translator.translate(end_time)}", font=36, anchor="mm")
         gr.draw_text((x_pos, y_pos + 100), f"{translator.translate('Press DY to adjust, DX to switch setting')}", font=21, anchor="mm")
-        gr.draw_text((x_pos, y_pos + 150), f"{translator.translate('Press START to start, M/F to Exit')}", font=21, anchor="mm")
+        gr.draw_text((x_pos, y_pos + 150), f"{translator.translate('Press START to start, B to Exit')}", font=21, anchor="mm")
         gr.draw_paint()
 
     time_text_width = gr.get_text_width("00:00:00", font=100)
@@ -339,7 +339,7 @@ def handle_stopwatch_input() -> None:
             thread = threading.Thread(target=input.check)
             thread.start()
 
-        elif input.key("MENUF"):
+        elif input.key("B"):
             if running:
                 elapsed_time += time.time() - start_time
                 running = False
@@ -374,6 +374,6 @@ def handle_stopwatch_input() -> None:
         gr.draw_text((x_time_pos+time_text_width - time_text_width2, y_pos+50), f"{milliseconds:02d}", clock=1, font=56, color=gr.colorRed, anchor="lm")
 
         gr.draw_text((x_pos, y_pos + 100), f"{translator.translate('Press START to start/stop, SELECT to reset')}", font=21, anchor="mm")
-        gr.draw_text((x_pos, y_pos + 150), f"{translator.translate('Press M/F to Exit')}", font=21, anchor="mm")
+        gr.draw_text((x_pos, y_pos + 150), f"{translator.translate('Press B to Back')}", font=21, anchor="mm")
 
         gr.draw_paint()

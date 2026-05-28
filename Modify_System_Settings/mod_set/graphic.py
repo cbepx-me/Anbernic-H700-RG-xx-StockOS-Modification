@@ -196,6 +196,27 @@ class UserInterface:
         )
         self.draw_text((pos[0] + 5, pos[1] + 5), text)
 
+    def row_list_dual(self, left_text: str, right_text: str, pos: tuple[int, int], width: int, selected: bool,
+                      show_arrows: bool = False) -> None:
+        """绘制左右分栏的列表项，左侧显示功能名，右侧显示当前值"""
+        # 如果选中且 show_arrows，显示左右箭头提示
+        if show_arrows:
+            # 在右侧文字左右边绘制箭头
+            right_text="< "+right_text+" >"
+        # 背景
+        self.draw_rectangle_r(
+            [pos[0], pos[1], pos[0] + width, pos[1] + 32],
+            5,
+            fill=(self.colorBlue if selected else self.colorGrayL1),
+        )
+        # 左侧文字
+        self.draw_text((pos[0] + 10, pos[1] + 5), left_text)
+        # 右侧文字（右对齐）
+        font_obj = ImageFont.truetype(font_file, 21)
+        right_width = font_obj.getlength(right_text)
+        right_x = pos[0] + width - right_width - 10
+        self.draw_text((right_x, pos[1] + 5), right_text)
+
     def draw_circle(
         self,
         position,

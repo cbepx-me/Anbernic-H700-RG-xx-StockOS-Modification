@@ -48,7 +48,7 @@ def update() -> None:
     else:
         input.check()
 
-    if input.key("MENUF"):
+    if input.key("SELECT"):
         gr.draw_end()
         print("[INFO]Exiting Custom Bezel Manager...")
         sys.exit()
@@ -120,7 +120,7 @@ def load_console_menu() -> None:
         )
 
     gr.button_circle((button_x - 110, button_y), "Y", f"{translator.translate('Help')}")
-    gr.button_circle((button_x, button_y), "M", f"{translator.translate('Exit')}")
+    gr.button_rectangle((button_x, button_y), "SEL", f"{translator.translate('Exit')}")
 
     gr.draw_paint()
 
@@ -297,7 +297,7 @@ def load_cfg_menu() -> None:
         gr.button_circle((20, button_y), "A", f"{translator.translate('Delete')}")
     gr.button_circle((160, button_y), "B", f"{translator.translate('Back')}")
     gr.button_circle((280, button_y), "X", f"{translator.translate('Reset')}")
-    gr.button_circle((button_x, button_y), "M", f"{translator.translate('Exit')}")
+    gr.button_rectangle((button_x, button_y), "SEL", f"{translator.translate('Exit')}")
 
     gr.draw_paint()
 
@@ -320,6 +320,6 @@ def load_help_menu() -> None:
     )
 
     gr.button_circle((20, button_y), "B", f"{translator.translate('Back')}")
-    gr.button_circle((button_x, button_y), "M", f"{translator.translate('Exit')}")
+    gr.button_rectangle((button_x, button_y), "SEL", f"{translator.translate('Exit')}")
 
     gr.draw_paint()

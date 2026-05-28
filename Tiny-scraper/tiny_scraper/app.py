@@ -70,7 +70,7 @@ def update() -> None:
     else:
         input.check()
 
-    if input.key("MENUF"):
+    if input.key("SELECT"):
         gr.draw_end()
         print("Exiting Tiny Scraper...")
         sys.exit()
@@ -141,7 +141,7 @@ def load_console_menu() -> None:
         )
 
     gr.button_circle((button_x-120, button_y), "Y", f"TF: {an.get_sd_storage()}")
-    gr.button_circle((button_x, button_y), "M", f"{translator.translate('Exit')}")
+    gr.button_rectangle((button_x, button_y), "SEL", f"{translator.translate('Exit')}")
 
     gr.draw_paint()
 
@@ -325,7 +325,7 @@ def load_roms_menu() -> None:
     gr.button_rectangle((10, button_y), "Start", f"{translator.translate('D. All')}")
     gr.button_circle((250, button_y), "A", f"{translator.translate('Download')}")
     gr.button_circle((button_x - 120, button_y), "B", f"{translator.translate('Back')}")
-    gr.button_circle((button_x, button_y), "M", f"{translator.translate('Exit')}")
+    gr.button_rectangle((button_x, button_y), "SEL", f"{translator.translate('Exit')}")
 
     gr.draw_paint()
 
