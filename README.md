@@ -22,16 +22,13 @@ Stock OS Modification is a project built on the StockOS of Anbernic, which is en
 5. Other additional tools
 
 ## Important tips
-1. It is recommended to use rufus flash TF under windows.
-   - Windows recommends using: [Rufus](https://rufus.ie/)
-   - Linux compatible: [flash_dd_with_gpt.sh](https://github.com/cbepx-me/Anbernic-H700-RG-xx-StockOS-Modification/releases/download/20260106/flash_dd_with_gpt.sh)
-   - Mac OS compatible: [flash_dd_with_gpt (MacOS).sh](https://github.com/cbepx-me/Anbernic-H700-RG-xx-StockOS-Modification/releases/download/20260106/flash_dd_with_gpt.MacOS.sh)
+### Use imaging software to write the image file to TF1  
+- Windows: [Rufus (recommended)](https://rufus.ie/) or [rpi-imager](https://github.com/raspberrypi/rpi-imager/releases)  
+- Linux: [rpi-imager (recommended)](https://github.com/raspberrypi/rpi-imager/releases) or [flash_dd_with_gpt.sh](https://github.com/cbepx-me/Anbernic-H700-RG-xx-StockOS-Modification/releases/download/20260605/flash_dd_with_gpt.sh)  
+- Mac OS: [rpi-imager (recommended)](https://github.com/raspberrypi/rpi-imager/releases) or [flash_dd_with_gpt (MacOS).sh](https://github.com/cbepx-me/Anbernic-H700-RG-xx-StockOS-Modification/releases/download/20260605/flash_dd_with_gpt.MacOS.sh)
 
-2. When using programs such as BalenaEtcher and DD flash TF on MacOS or Linux systems, automatic partitioning will fail.
+### When using programs such as BalenaEtcher and DD flash TF on MacOS or Linux systems, automatic partitioning will fail.
    - Solution: https://github.com/cbepx-me/Anbernic-H700-RG-xx-StockOS-Modification/issues/68
-  
-   You can use the script I provided to complete the flashing process. Please place the image file and script file in the same path, run the script, and follow the prompts to complete the subsequent operations. Please ensure that gdisk is installed before use:
-   - Solution: https://github.com/cbepx-me/Anbernic-H700-RG-xx-StockOS-Modification/blob/main/flash_dd_with_gpt.sh
 
 ## Troubleshooting
 ### No partitions after flashing with script - Linux
