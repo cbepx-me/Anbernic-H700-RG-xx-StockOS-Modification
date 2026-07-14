@@ -37,5 +37,14 @@
     "Storm": "暴风雨",
     "Thunder": "暴风雨",
     "partly cloudy": "局部多云",
-    "Unknown": "未知"
+    "Unknown": "未知",
+    "SETTIME": "设置时间",
+    "Set_Year": "年",
+    "Set_Month": "月",
+    "Set_Day": "日",
+    "Set_Hour": "时",
+    "Set_Minute": "分",
+    "Set_Second": "秒",
+    "Back": "返回",
+    "Time_Updated": "时间已更新！"
 }

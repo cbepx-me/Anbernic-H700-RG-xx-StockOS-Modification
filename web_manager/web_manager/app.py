@@ -331,7 +331,7 @@ def device_info():
     return jsonify({
         'board': board_info,
         'system_version': get_system_version(),
-        'author': 'G.R.H'
+        'ver': ver
     })
 
 from flask import render_template_string

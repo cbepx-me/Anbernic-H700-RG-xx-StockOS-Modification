@@ -9,8 +9,9 @@ import datetime
 import time
 import subprocess
 import os
+import calendar
 
-ver = "v1.2"
+ver = "v1.3"
 translator = Translator(system_lang)
 gr = UserInterface()
 skip_input_check = True
@@ -64,6 +65,8 @@ def update() -> None:
         handle_timer_input()
     elif current_window == "STOPWATCH":
         handle_stopwatch_input()
+    elif current_window == "SETTIME":
+        handle_settime_input()
     else:
         handle_console_input()
 
@@ -71,7 +74,7 @@ def update() -> None:
 def handle_console_input() -> None:
     global current_window, selected_index, skip_input_check
 
-    file_list = ["CLOCK", "TIMER", "STOPWATCH"]
+    file_list = ["CLOCK", "TIMER", "STOPWATCH", "SETTIME"]
 
     if input.key("DY"):
         selected_index = (selected_index + input.value) % len(file_list)
@@ -253,7 +256,7 @@ def handle_timer_input() -> None:
         gr.draw_text((x_pos, y_pos - 25), f"{hours:02d}:{minutes:02d}:{seconds:02d}", font=60, anchor="mm")
         gr.draw_text((x_pos, y_pos + 50), f"{translator.translate('At the end')}: {translator.translate(end_time)}", font=36, anchor="mm")
         gr.draw_text((x_pos, y_pos + 100), f"{translator.translate('Press DY to adjust, DX to switch setting')}", font=21, anchor="mm")
-        gr.draw_text((x_pos, y_pos + 150), f"{translator.translate('Press START to start, B to Exit')}", font=21, anchor="mm")
+        gr.draw_text((x_pos, y_pos + 150), f"{translator.translate('Press START to start, B to Back')}", font=21, anchor="mm")
         gr.draw_paint()
 
     time_text_width = gr.get_text_width("00:00:00", font=100)
@@ -306,7 +309,7 @@ def handle_stopwatch_input() -> None:
     time_text_width2 = gr.get_text_width(".00", font=56)
     x_time_pos = (x_size - time_text_width) // 2
 
-    start_time = None
+    start_time = 0
     elapsed_time = 0
     running = False
     
@@ -377,3 +380,72 @@ def handle_stopwatch_input() -> None:
         gr.draw_text((x_pos, y_pos + 150), f"{translator.translate('Press B to Back')}", font=21, anchor="mm")
 
         gr.draw_paint()
+
+
+def handle_settime_input() -> None:
+    global current_window, skip_input_check
+
+    input.reset_input()
+
+    now = datetime.datetime.now()
+    time_components = {
+        "year": now.year,
+        "month": now.month,
+        "day": now.day,
+        "hour": now.hour,
+        "minute": now.minute,
+        "second": now.second
+    }
+    setting_keys = ["year", "month", "day", "hour", "minute", "second"]
+    setting_index = 0
+    max_values = {
+        "year": 2100,
+        "month": 12,
+        "day": 31,
+        "hour": 23,
+        "minute": 59,
+        "second": 59
+    }
+
+    while True:
+        current_key = setting_keys[setting_index]
+        translated_key = translator.translate(f"Set_{current_key.capitalize()}")
+
+        if input.key("DX"):
+            time_components[current_key] = max(1, (time_components[current_key] + input.value) % (
+                        max_values[current_key] + 1))
+            if current_key == "month" or current_key == "year":
+                max_day = calendar.monthrange(time_components["year"], time_components["month"])[1]
+                max_values["day"] = max_day
+                time_components["day"] = min(time_components["day"], max_day)
+        elif input.key("DY"):
+            setting_index = (setting_index + input.value) % len(setting_keys)
+        elif input.key("A"):
+            new_time = datetime.datetime(**time_components)
+            try:
+                subprocess.run(f"date -s '{new_time.isoformat()}'", shell=True, check=True)
+                subprocess.run("hwclock --systohc", shell=True, check=True)
+            except subprocess.CalledProcessError as e:
+                gr.draw_log(f"Error: {e}", fill=gr.colorRed, outline=gr.colorGray)
+            gr.draw_log(translator.translate("Time_Updated"), fill=gr.colorBlueD1, outline=gr.colorGray)
+            gr.draw_paint()
+            time.sleep(2)
+            current_window = "console"
+            skip_input_check = True
+            return
+        elif input.key("B"):
+            current_window = "console"
+            skip_input_check = True
+            return
+
+        gr.draw_clear()
+        gr.draw_text((x_size / 2, 50), translator.translate("SETTIME"), font=36, anchor="mm")
+        y_pos = 100
+        for i, key in enumerate(setting_keys):
+            text = f"{translator.translate(f'Set_{key.capitalize()}')}: {time_components[key]:02d}"
+            color = gr.colorYellow if i == setting_index else "white"
+            gr.draw_text((200, y_pos + i * 40), text, font=36, color=color)
+        gr.button_circle((30, button_y), "A", f"{translator.translate('Set')}")
+        gr.button_circle((button_x, button_y), "B", f"{translator.translate('Back')}")
+        gr.draw_paint()
+        input.check()

@@ -1,5 +1,5 @@
 {
-    "Anbernic game management": "Anbernic 게임 관리자",
+    "Anbernic game management": "Anbernic 웹 매니저",
     "Accessing the above address through a browser": "브라우저를 통해 위 주소 접속",
     "Press SELECT to exit": "SELECT를 눌러 종료",
     "Loading device info...": "기기 정보 로드 중...",
@@ -40,7 +40,7 @@
     "Shutdown server?": "서버를 종료하시겠습니까?",
     "Server shutting down": "서버 종료 중",
     "Server stopped": "서버 중지됨",
-    "⭐ Anbernic game management | 🕹️ Model: {board} | ⚙️ Firmware: {version}": "⭐ Anbernic 게임 관리자 | 🕹️ 모델: {board} | ⚙️ 펌웨어: {version}",
+    "⭐ Anbernic game management | 🕹️ Model: {board} | ⚙️ Firmware: {version}": "⭐ Anbernic 웹 매니저 | 🕹️ 모델: {board} | ⚙️ 펌웨어: {version}",
     "Back to parent": "상위 폴더로",
     "Platform: ": "플랫폼: ",
     "Size: ": "크기: ",

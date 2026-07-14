@@ -37,5 +37,14 @@
     "Storm": "Шторм",
     "Thunder": "Гроза",
     "partly cloudy": "Переменная облачность",
-    "Unknown": "Неизвестно"
+    "Unknown": "Неизвестно",
+    "SETTIME": "Установить время",
+    "Set_Year": "Год",
+    "Set_Month": "Месяц",
+    "Set_Day": "День",
+    "Set_Hour": "Час",
+    "Set_Minute": "Минута",
+    "Set_Second": "Секунда",
+    "Back": "Назад",
+    "Time_Updated": "Время обновлено!"
 }

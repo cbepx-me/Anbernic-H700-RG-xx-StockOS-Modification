@@ -522,11 +522,11 @@ function updateDeviceInfo() {
     .then(function(response) { return response.json(); })
     .then(function(data) {
         var version = data.system_version || '{{ _("Unknown") }}';
-        var author = data.author || 'G.R.H';
+        var ver = data.ver || '{{ _("Unknown") }}';
         document.getElementById('device-info').innerHTML =
             lang.device_info_template
             .replace('{board}', data.board)
-            .replace('{version}', version) + ' | ✍️ ' + author;
+            .replace('{version}', version) + ' | ✍️ v' + ver;
     })
     .catch(function(err) {
         document.getElementById('device-info').textContent = lang.device_unavailable;

@@ -1,5 +1,5 @@
 {
-    "Anbernic game management": "Менеджер игр Anbernic",
+    "Anbernic game management": "Веб-менеджер Anbernic",
     "Accessing the above address through a browser": "Доступ к указанному адресу через браузер",
     "Press SELECT to exit": "Нажмите SELECT для выхода",
     "Loading device info...": "Загрузка информации об устройстве...",
@@ -40,7 +40,7 @@
     "Shutdown server?": "Выключить сервер?",
     "Server shutting down": "Сервер выключается",
     "Server stopped": "Сервер остановлен",
-    "⭐ Anbernic game management | 🕹️ Model: {board} | ⚙️ Firmware: {version}": "⭐ Менеджер игр Anbernic | 🕹️ Модель: {board} | ⚙️ Прошивка: {version}",
+    "⭐ Anbernic game management | 🕹️ Model: {board} | ⚙️ Firmware: {version}": "⭐ Веб-менеджер Anbernic | 🕹️ Модель: {board} | ⚙️ Прошивка: {version}",
     "Back to parent": "Назад",
     "Platform: ": "Платформа: ",
     "Size: ": "Размер: ",

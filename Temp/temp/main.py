@@ -57,10 +57,10 @@ def main():
     if ensure_sdl2():
         import app
 
-    threading.Thread(target=app.fn_watcher, daemon=True).start()
-    app.start()
-    while True:
-        app.update()
+        threading.Thread(target=app.fn_watcher, daemon=True).start()
+        app.start()
+        while True:
+            app.update()
 
 if __name__ == "__main__":
     main()

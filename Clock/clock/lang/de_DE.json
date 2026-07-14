@@ -37,5 +37,14 @@
     "Storm": "Sturm",
     "Thunder": "Gewitter",
     "partly cloudy": "Teilweise bewölkt",
-    "Unknown": "Unbekannt"
+    "Unknown": "Unbekannt",
+    "SETTIME": "Zeit einstellen",
+    "Set_Year": "Jahr",
+    "Set_Month": "Monat",
+    "Set_Day": "Tag",
+    "Set_Hour": "Stunde",
+    "Set_Minute": "Minute",
+    "Set_Second": "Sekunde",
+    "Back": "Zurück",
+    "Time_Updated": "Zeit aktualisiert!"
 }

@@ -1,5 +1,5 @@
 {
-    "Anbernic game management": "Anbernic 遊戲管理器",
+    "Anbernic game management": "Anbernic 網路管理器",
     "Accessing the above address through a browser": "通過瀏覽器訪問上述地址",
     "Press SELECT to exit": "按 SELECT 退出",
     "Loading device info...": "載入裝置資訊...",
@@ -40,7 +40,7 @@
     "Shutdown server?": "關閉伺服器？",
     "Server shutting down": "伺服器正在關閉",
     "Server stopped": "服務已停止",
-    "⭐ Anbernic game management | 🕹️ Model: {board} | ⚙️ Firmware: {version}": "⭐ Anbernic 遊戲管理器 | 🕹️ 機型: {board} | ⚙️ 韌體: {version}",
+    "⭐ Anbernic game management | 🕹️ Model: {board} | ⚙️ Firmware: {version}": "⭐ Anbernic 網路管理器 | 🕹️ 機型: {board} | ⚙️ 韌體: {version}",
     "Back to parent": "返回上級",
     "Platform: ": "平台：",
     "Size: ": "容量：",

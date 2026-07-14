@@ -1,5 +1,5 @@
 {
-    "Anbernic game management": "Anbernic ゲームマネージャー",
+    "Anbernic game management": "Anbernic ウェブマネージャー",
     "Accessing the above address through a browser": "ブラウザで上記のアドレスにアクセス",
     "Press SELECT to exit": "SELECTを押して終了",
     "Loading device info...": "デバイス情報を読み込み中...",
@@ -40,7 +40,7 @@
     "Shutdown server?": "サーバーをシャットダウンしますか？",
     "Server shutting down": "サーバーをシャットダウン中",
     "Server stopped": "サーバー停止",
-    "⭐ Anbernic game management | 🕹️ Model: {board} | ⚙️ Firmware: {version}": "⭐ Anbernic ゲームマネージャー | 🕹️ モデル: {board} | ⚙️ ファームウェア: {version}",
+    "⭐ Anbernic game management | 🕹️ Model: {board} | ⚙️ Firmware: {version}": "⭐ Anbernic ウェブマネージャー | 🕹️ モデル: {board} | ⚙️ ファームウェア: {version}",
     "Back to parent": "親フォルダに戻る",
     "Platform: ": "プラットフォーム：",
     "Size: ": "サイズ：",

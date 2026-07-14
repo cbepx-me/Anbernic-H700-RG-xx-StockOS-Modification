@@ -37,5 +37,14 @@
     "Storm": "Tempête",
     "Thunder": "Orage",
     "partly cloudy": "Partiellement nuageux",
-    "Unknown": "Inconnu"
+    "Unknown": "Inconnu",
+    "SETTIME": "Régler l'heure",
+    "Set_Year": "Année",
+    "Set_Month": "Mois",
+    "Set_Day": "Jour",
+    "Set_Hour": "Heure",
+    "Set_Minute": "Minute",
+    "Set_Second": "Seconde",
+    "Back": "Retour",
+    "Time_Updated": "L'heure a été mise à jour!"
 }

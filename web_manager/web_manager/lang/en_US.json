@@ -1,5 +1,5 @@
 {
-    "Anbernic game management": "Anbernic Game Manager",
+    "Anbernic game management": "Anbernic Web Manager",
     "Accessing the above address through a browser": "Access the above address via browser",
     "Press SELECT to exit": "Press SELECT to exit",
     "Loading device info...": "Loading device info...",
@@ -40,7 +40,7 @@
     "Shutdown server?": "Shutdown server?",
     "Server shutting down": "Server shutting down",
     "Server stopped": "Server stopped",
-    "⭐ Anbernic game management | 🕹️ Model: {board} | ⚙️ Firmware: {version}": "⭐ Anbernic Game Manager | 🕹️ Model: {board} | ⚙️ Firmware: {version}",
+    "⭐ Anbernic game management | 🕹️ Model: {board} | ⚙️ Firmware: {version}": "⭐ Anbernic Web Manager | 🕹️ Model: {board} | ⚙️ Firmware: {version}",
     "Back to parent": "Back to parent",
     "Platform: ": "Platform: ",
     "Size: ": "Size: ",

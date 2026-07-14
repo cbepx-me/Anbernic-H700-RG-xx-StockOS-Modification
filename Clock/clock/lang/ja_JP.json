@@ -37,5 +37,14 @@
     "Storm": "嵐",
     "Thunder": "雷雨",
     "partly cloudy": "一部曇り",
-    "Unknown": "不明"
+    "Unknown": "不明",
+    "SETTIME": "時刻を設定",
+    "Set_Year": "年",
+    "Set_Month": "月",
+    "Set_Day": "日",
+    "Set_Hour": "時",
+    "Set_Minute": "分",
+    "Set_Second": "秒",
+    "Back": "戻る",
+    "Time_Updated": "時刻が更新されました！"
 }

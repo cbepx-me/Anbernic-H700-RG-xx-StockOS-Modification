@@ -55,11 +55,9 @@ def main():
 
     if ensure_sdl2():
         import app
-
-    app.start()
-
-    while True:
-        app.update()
+        app.start()
+        while True:
+            app.update()
 
 if __name__ == "__main__":
     main()
