@@ -394,57 +394,173 @@ def handle_settime_input() -> None:
         "day": now.day,
         "hour": now.hour,
         "minute": now.minute,
-        "second": now.second
+        "second": now.second,
+        "mode": 2  # 0:AM, 1:PM, 2:24h
     }
-    setting_keys = ["year", "month", "day", "hour", "minute", "second"]
+
+    # 顺序：年、月、日、时、分、秒、模式
+    setting_keys = ["year", "month", "day", "hour", "minute", "second", "mode"]
+    separators = ["/", "/", " ", ": ", ": ", "", " "]  # 模式前加空格
     setting_index = 0
-    max_values = {
-        "year": 2100,
-        "month": 12,
-        "day": 31,
-        "hour": 23,
-        "minute": 59,
-        "second": 59
-    }
+
+    def get_hour_limits(mode):
+        if mode == 2:  # 24h
+            return 0, 23
+        else:  # AM(0) or PM(1)
+            return 1, 12
+
+    def get_max_day(year, month):
+        return calendar.monthrange(year, month)[1]
+
+    def get_min_val(key):
+        if key in ["year", "month", "day"]:
+            return 1
+        return 0  # hour, minute, second
+
+    def get_max_val(key, components):
+        if key == "year":
+            return 2100
+        elif key == "month":
+            return 12
+        elif key == "day":
+            return get_max_day(components["year"], components["month"])
+        elif key == "hour":
+            return get_hour_limits(components["mode"])[1]
+        elif key == "minute":
+            return 59
+        elif key == "second":
+            return 59
+        elif key == "mode":
+            return 2
+        return 0
+
+    # 调整函数：处理进位/借位
+    def adjust(idx, delta):
+        if idx < 0 or idx >= len(setting_keys):
+            return
+        key = setting_keys[idx]
+        if key == "mode":
+            # 模式单独循环
+            new_val = (time_components[key] + delta) % 3
+            time_components[key] = new_val
+            # 如果切换到12小时制，确保小时不超出
+            if new_val != 2:
+                h_min, h_max = get_hour_limits(new_val)
+                if time_components["hour"] > h_max:
+                    time_components["hour"] = h_max
+                elif time_components["hour"] < h_min:
+                    time_components["hour"] = h_min
+            return
+
+        # 获取当前值及范围
+        cur = time_components[key]
+        min_val = get_min_val(key)
+        max_val = get_max_val(key, time_components)
+
+        new_val = cur + delta
+
+        if new_val < min_val:
+            # 借位：当前值设为最大值，向上级借1
+            time_components[key] = max_val
+            if idx > 0:
+                adjust(idx - 1, -1)  # 上级减1
+        elif new_val > max_val:
+            # 进位：当前值设为最小值，向上级进1
+            time_components[key] = min_val
+            if idx > 0:
+                adjust(idx - 1, 1)   # 上级加1
+        else:
+            time_components[key] = new_val
+
+        # 如果改变了月份或年份，需要修正日期
+        if key in ["year", "month"]:
+            max_day = get_max_day(time_components["year"], time_components["month"])
+            if time_components["day"] > max_day:
+                time_components["day"] = max_day
+
+    font_size = 40 if x_size > 800 else 32
 
     while True:
-        current_key = setting_keys[setting_index]
-        translated_key = translator.translate(f"Set_{current_key.capitalize()}")
-
         if input.key("DX"):
-            time_components[current_key] = max(1, (time_components[current_key] + input.value) % (
-                        max_values[current_key] + 1))
-            if current_key == "month" or current_key == "year":
-                max_day = calendar.monthrange(time_components["year"], time_components["month"])[1]
-                max_values["day"] = max_day
-                time_components["day"] = min(time_components["day"], max_day)
+            direction = input.value
+            setting_index = (setting_index + direction) % len(setting_keys)
         elif input.key("DY"):
-            setting_index = (setting_index + input.value) % len(setting_keys)
+            direction = input.value
+            adjust(setting_index, -direction)  # 注意：input.value 为 -1（减小）或 1（增加）
         elif input.key("A"):
-            new_time = datetime.datetime(**time_components)
             try:
+                # 根据模式转换小时
+                hour = time_components["hour"]
+                mode = time_components["mode"]
+                if mode == 0:  # AM
+                    if hour == 12:
+                        hour = 0
+                elif mode == 1:  # PM
+                    if hour != 12:
+                        hour += 12
+                # mode==2 直接使用
+                new_time = datetime.datetime(
+                    year=time_components["year"],
+                    month=time_components["month"],
+                    day=time_components["day"],
+                    hour=hour,
+                    minute=time_components["minute"],
+                    second=time_components["second"]
+                )
                 subprocess.run(f"date -s '{new_time.isoformat()}'", shell=True, check=True)
                 subprocess.run("hwclock --systohc", shell=True, check=True)
-            except subprocess.CalledProcessError as e:
+                gr.draw_log(translator.translate("Time_Updated"), fill=gr.colorBlueD1, outline=gr.colorGray)
+                gr.draw_paint()
+                time.sleep(2)
+                current_window = "console"
+                skip_input_check = True
+                return
+            except Exception as e:
                 gr.draw_log(f"Error: {e}", fill=gr.colorRed, outline=gr.colorGray)
-            gr.draw_log(translator.translate("Time_Updated"), fill=gr.colorBlueD1, outline=gr.colorGray)
-            gr.draw_paint()
-            time.sleep(2)
-            current_window = "console"
-            skip_input_check = True
-            return
+                gr.draw_paint()
+                time.sleep(2)
         elif input.key("B"):
             current_window = "console"
             skip_input_check = True
             return
 
+        # 绘制界面
         gr.draw_clear()
         gr.draw_text((x_size / 2, 50), translator.translate("SETTIME"), font=36, anchor="mm")
-        y_pos = 100
+
+        # 构建显示字符串，并计算起始x
+        parts = []
         for i, key in enumerate(setting_keys):
-            text = f"{translator.translate(f'Set_{key.capitalize()}')}: {time_components[key]:02d}"
+            if key == "mode":
+                mode_text = ["AM", "PM", "24h"][time_components[key]]
+                parts.append(mode_text)
+            elif key == "year":
+                parts.append(f"{time_components[key]:04d}")
+            else:
+                parts.append(f"{time_components[key]:02d}")
+            if i < len(separators) and separators[i]:
+                parts.append(separators[i])
+        full_str = "".join(parts)
+        total_width = gr.get_text_width(full_str, font=font_size)
+        start_x = (x_size - total_width) // 2
+        y_center = y_size // 2
+
+        x_pos = start_x
+        y_pos = y_center
+        for i, key in enumerate(setting_keys):
+            if key == "mode":
+                text = ["AM", "PM", "24h"][time_components[key]]
+            elif key == "year":
+                text = f"{time_components[key]:04d}"
+            else:
+                text = f"{time_components[key]:02d}"
             color = gr.colorYellow if i == setting_index else "white"
-            gr.draw_text((200, y_pos + i * 40), text, font=36, color=color)
+            gr.draw_text((x_pos, y_pos), text, font=font_size, color=color, anchor="lm")
+            x_pos += gr.get_text_width(text, font=font_size)
+            if i < len(separators) and separators[i]:
+                gr.draw_text((x_pos, y_pos), separators[i], font=font_size, color="white", anchor="lm")
+                x_pos += gr.get_text_width(separators[i], font=font_size)
+
         gr.button_circle((30, button_y), "A", f"{translator.translate('Set')}")
         gr.button_circle((button_x, button_y), "B", f"{translator.translate('Back')}")
         gr.draw_paint()

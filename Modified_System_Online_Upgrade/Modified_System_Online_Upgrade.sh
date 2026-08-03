@@ -1,14 +1,14 @@
 #!/bin/bash
 
-version="1.0.0"
+version="1.0.3"
 progdir="$(cd $(dirname "$0") || exit; pwd)"
-program="${progdir}/upgrade/launcher.py"
+program="${progdir}/upgrade/main.py"
 log_file="${progdir}/upgrade/log.txt"
 SCRIPT_NAME="$0"
 NEW_FILE="$progdir/upgrade/update.sh"
 APP_FILE="/tmp/app.tar.gz"
 
-pkill -f "launcher.py" 2>/dev/null || true
+pkill -f "main.py" 2>/dev/null || true
 
 export PYSDL2_DLL_PATH="/usr/lib"
 

@@ -8,6 +8,7 @@ board_mapping = {
     'RGcubexx': 1,
     'RG34xx': 2,
     'RG34xxSP': 2,
+    'RGSP': 2,
     'RG28xx': 3,
     'RG35xx+_P': 4,
     'RG35xxH': 5,
@@ -27,6 +28,10 @@ try:
     lang_info = Path("/mnt/vendor/oem/language.ini").read_text().splitlines()[0]
 except (FileNotFoundError, IndexError):
     lang_info = 2
+try:
+    hdmi_info = Path("/sys/class/extcon/hdmi/state").read_text().splitlines()[0]
+except (FileNotFoundError, IndexError):
+    hdmi_info = 'HDMI=0'
 
 hw_info = board_mapping.get(board_info, 5)
 system_lang = system_list[int(lang_info)]
@@ -52,7 +57,6 @@ def main():
     if ensure_sdl2():
         import app
         app.start()
-
         while True:
             app.update()
 

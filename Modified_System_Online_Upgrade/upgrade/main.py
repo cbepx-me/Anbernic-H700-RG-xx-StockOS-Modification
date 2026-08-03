@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # make by G.R.H
 
-from pathlib import Path
 import zipfile
 import os
 

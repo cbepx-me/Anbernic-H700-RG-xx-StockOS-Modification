@@ -1,4 +1,4 @@
-from main import hw_info, system_lang
+from main import hw_info, board_info, system_lang
 from graphic import screen_resolutions, UserInterface
 from language import Translator
 from pathlib import Path
@@ -35,9 +35,9 @@ button_x = x_size - 140
 button_y = y_size - 30
 ratio = y_size / x_size
 
-if hw_info in (1, 6):
+if board_info in ('RGcubexx', 'RGSP', 'RG35xxSP'):
     remove_lists = [ 'menu.varc' ]
-elif hw_info == 3:
+elif board_info == 'RG28xx':
     remove_lists = [ 'menu.varc', 'menu.samba', 'menu.ssh', 'menu.syn' ]
 else:
     remove_lists = []
@@ -232,7 +232,7 @@ def load_menu_menu() -> None:
     gr.draw_help(f"{translator.translate(help_txt)}", fill=gr.colorBlueD1, outline=gr.colorBlueD1)
 
     ip_address = get_wlan0_ip()
-    gr.draw_text((x_size / 2, button_y + 12), f"IP: {ip_address}", font=21, color=gr.colorGreen, anchor="mm")
+    gr.draw_text((x_size / 2, button_y + 12), f"{translator.translate('Model')}: {board_info} | IP: {ip_address}", font=21, color=gr.colorGreen, anchor="mm")
     gr.button_circle((30, button_y), "A", f"{translator.translate('Set')}")
     gr.button_rectangle((button_x, button_y), "SEL", f"{translator.translate('Exit')}")
 

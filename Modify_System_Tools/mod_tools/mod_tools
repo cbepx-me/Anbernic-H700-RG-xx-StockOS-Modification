@@ -2,30 +2,11 @@
 # make by G.R.H
 
 . /mnt/mod/ctrl/configs/functions &>/dev/null 2>&1
-
+progdir="$(cd $(dirname "$0") || exit; pwd)"
 
 case $1 in
     ebook) # E-book conversion code
-        T_DIR="Ebook"
-        for TF_PATH in /mnt/mmc /mnt/sdcard
-        do
-            find $TF_PATH/$T_DIR/* -maxdepth 2 -iname '*.txt' -type f | while read -r FILE
-            do
-                if [[ ! "$(basename "$FILE")" =~ ".bak" ]] && [ ! -f "$FILE.bak" ]; then
-                    CHK_FILE="$TF_PATH/$T_DIR/$RANDOM-$RANDOM.txt"
-                    head -n 5 "$FILE" > $CHK_FILE
-                    CODE=$(file -bi "$CHK_FILE" | awk -F "=" '{print $2}')
-                    if [[ ! "$CODE" == "utf-8" ]]; then
-                        mv "$FILE" "$FILE.bak"
-                        iconv -f GB2312 -t UTF-8 "$FILE.bak" -c -o "$FILE"
-                        if [ "$?" -eq "1" ]; then
-                            mv "$FILE.bak" "$FILE"
-                        fi
-                    fi
-                    rm -f $CHK_FILE
-                fi
-            done
-        done
+        python3 "$progdir"/convert.py
         sync
     ;;
     
@@ -89,23 +70,26 @@ case $1 in
     ;;
 
     bezels) # Reinstall bezels
-        [ -f "/mnt/mod/update/mod/data/hdmi.dep" ] && unzip -oq /mnt/mod/update/mod/data/hdmi.dep -d /
         board_info=$(head -n 1 /mnt/vendor/oem/board.ini)
         case $board_info in
             "RG28xx")
                 [ -f "/mnt/mod/update/mod/data/28.dep" ] && unzip -oq /mnt/mod/update/mod/data/28.dep -d /
             ;;
             "RGcubexx")
+                [ -f "/mnt/mod/update/mod/data/hdmi.dep" ] && unzip -oq /mnt/mod/update/mod/data/hdmi.dep -d /
                 [ -f "/mnt/mod/update/mod/data/cube.dep" ] && unzip -oq /mnt/mod/update/mod/data/cube.dep -d /
             ;;
             "RG34xx")
+                [ -f "/mnt/mod/update/mod/data/hdmi.dep" ] && unzip -oq /mnt/mod/update/mod/data/hdmi.dep -d /
                 [ -f "/mnt/mod/update/mod/data/34.dep" ] && unzip -oq /mnt/mod/update/mod/data/34.dep -d /
             ;;
-            "RG34xxSP")
+            "RG34xxSP"|"RGSP")
+                [ -f "/mnt/mod/update/mod/data/hdmi.dep" ] && unzip -oq /mnt/mod/update/mod/data/hdmi.dep -d /
                 [ -f "/mnt/mod/update/mod/data/34.dep" ] && unzip -oq /mnt/mod/update/mod/data/34.dep -d /
                 [ -f "/mnt/mod/update/mod/data/34sp.dep" ] && unzip -oq /mnt/mod/update/mod/data/34sp.dep -d /
             ;;
             *)
+                [ -f "/mnt/mod/update/mod/data/hdmi.dep" ] && unzip -oq /mnt/mod/update/mod/data/hdmi.dep -d /
                 [ -f "/mnt/mod/update/mod/data/35.dep" ] && unzip -oq /mnt/mod/update/mod/data/35.dep -d /
             ;;
         esac

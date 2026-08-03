@@ -1,8 +1,32 @@
+import glob
+import os
 import struct
+
+from app import hw_info
 
 code = 0
 codeName = ""
 value = 0
+
+def find_anbernic_device():
+    keyword = "ANBERNIC"
+    for event_path in glob.glob("/dev/input/event*"):
+        dev_name = os.path.basename(event_path)
+        sys_path = f"/sys/class/input/{dev_name}/device/name"
+        try:
+            with open(sys_path, 'r') as f:
+                name = f.read().strip()
+                if keyword in name:
+                    return event_path
+        except Exception:
+            continue
+
+    fallback = f"/dev/input/event{hw_info}"
+    if os.path.exists(fallback):
+        return fallback
+    raise RuntimeError("No ANBERNIC input device found")
+
+device_path = find_anbernic_device()
 
 mapping = {
     304: "A",
@@ -24,7 +48,7 @@ mapping = {
 
 def check():
     global type, code, codeName, codeDown, value, valueDown
-    with open("/dev/input/event1", "rb") as f:
+    with open(device_path, "rb") as f:
         while True:
             event = f.read(24)
             

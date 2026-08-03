@@ -5,13 +5,12 @@ import socket
 import threading
 import time
 from flask import Flask, request, jsonify, send_file, render_template_string
+import sys
 
 # 导入你的已有模块
 from systems import systems, get_system_extension
 from anbernic import Anbernic
 from language import Translator
-import input
-
 
 # 版本
 ver = "1.0.0"
@@ -31,19 +30,23 @@ except ImportError:
 try:
     board_info = Path("/mnt/vendor/oem/board.ini").read_text().splitlines()[0]
     board_mapping = {
-        "RGcubexx": 1,
-        "RG34xx": 2,
-        "RG28xx": 3,
-        "RG35xx+_P": 4,
-        "RG35xxH": 5,
-        "RG35xxSP": 6,
-        "RG40xxH": 7,
-        "RG40xxV": 8,
-        "RG35xxPRO": 9,
+        'RGcubexx': 1,
+        'RG34xx': 2,
+        'RG34xxSP': 2,
+        'RGSP': 2,
+        'RG28xx': 3,
+        'RG35xx+_P': 4,
+        'RG35xxH': 5,
+        'RG35xxSP': 6,
+        'RG40xxH': 7,
+        'RG40xxV': 8,
+        'RG35xxPRO': 9
     }
     hw_info = board_mapping.get(board_info, 5)  # 默认 5
 except:
     hw_info = 5
+
+import input
 
 try:
     lang_info = Path("/mnt/vendor/oem/language.ini").read_text().splitlines()[0]
@@ -106,7 +109,7 @@ def show_splash_screen(ip):
         ui.draw_text((ui.screen_width // 2, box_y + 165), open_text, font=25, color="#ffd700", anchor="mm")
         hint = translator.translate("Press SELECT to exit")
         ui.draw_text((ui.screen_width // 2, box_y + box_height - 35), hint, font=23, color="#888888", anchor="mm")
-        ui.draw_text((ui.screen_width - 75, box_y + box_height - 35), f"v{ver}", font=23, color="#888888", anchor="mm")
+        ui.draw_text((box_x + box_width - 50, box_y + box_height - 35), f"v{ver}", font=23, color="#888888", anchor="mm")
         ui.draw_paint()
         print("[DEBUG] splash screen finished")
     except Exception as e:
@@ -557,8 +560,8 @@ def exit_on_key():
 def main():
     if not is_connected():
         show_error_screen()
-        time.sleep(6)
-        os._exit(0)
+        time.sleep(3)
+        sys.exit(1)
 
     ip = get_local_ip()
     print("\n" + "="*50)

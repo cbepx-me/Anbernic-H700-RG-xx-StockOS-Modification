@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-
+import glob
 import hashlib
 import shutil
 import socket
@@ -24,7 +24,7 @@ from dataclasses import dataclass
 # =========================
 from PIL import Image, ImageDraw, ImageFont
 
-cur_app_ver = "1.0.4"
+cur_app_ver = "1.0.6"
 
 def ensure_requests():
     try:
@@ -174,6 +174,7 @@ class Config:
                 "RGcubexx": 1,
                 "RG34xx": 2,
                 "RG34xxSP": 2,
+                "RGSP": 2,
                 "RG28xx": 3,
                 "RG35xx+_P": 4,
                 "RG35xxH": 5,
@@ -254,6 +255,8 @@ class InputHandler:
         self.cfg = cfg
         self.code_name: str = ""
         self.value: int = 0
+        self.board_info = Path(self.cfg.root_path + "/mnt/vendor/oem/board.ini").read_text().splitlines()[0]
+        self.device_path = self._find_anbernic_device()
 
         if os.name == "nt":
             self.key_map = {
@@ -270,6 +273,24 @@ class InputHandler:
                 sdl2.SDLK_PAGEDOWN: ("L2", 1),
                 sdl2.SDLK_HOME: ("R2", 1),
             }
+
+    def _find_anbernic_device(self):
+        keyword = "ANBERNIC"
+        for event_path in glob.glob("/dev/input/event*"):
+            dev_name = os.path.basename(event_path)
+            sys_path = f"/sys/class/input/{dev_name}/device/name"
+            try:
+                with open(sys_path, 'r') as f:
+                    name = f.read().strip()
+                    if keyword in name:
+                        return event_path
+            except Exception:
+                continue
+
+        fallback = f"/dev/input/event{self.cfg.board_mapping.get(self.board_info, 5)}"
+        if os.path.exists(fallback):
+            return fallback
+        raise RuntimeError("No ANBERNIC input device found")
 
     def poll(self) -> None:
         if os.name == "nt":
@@ -290,7 +311,7 @@ class InputHandler:
             self.value = 0
         else:
             try:
-                with open("/dev/input/event1", "rb") as f:
+                with open(self.device_path, "rb") as f:
                     while True:
                         event = f.read(24)
                         if not event:

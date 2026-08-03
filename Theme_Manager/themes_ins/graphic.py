@@ -1,6 +1,6 @@
 import ctypes
 import os
-from main import hw_info
+from main import hw_info, hdmi_info
 from typing import Optional
 
 import sdl2
@@ -100,7 +100,7 @@ class UserInterface:
 
     def draw_paint(self):
         # Convert PIL image to SDL2 texture at base resolution
-        if hw_info == 3:
+        if hw_info == 3 and hdmi_info != "HDMI=1":
             rotated_image = self.active_image.rotate(90, expand=True)
             rgba_data = rotated_image.tobytes()
             temp_width, temp_height = rotated_image.size
@@ -418,7 +418,7 @@ class UserInterface:
         img.thumbnail((target_width, target_height))
         paste_x = target_x + (target_width - img.width) // 2
         paste_y = target_y + (target_height - img.height) // 2
-        if hw_info == 3 and rota == 1:
+        if hw_info == 3 and rota == 1 and hdmi_info != "HDMI=1":
             img = img.rotate(-90, expand=True)
         self.active_image.paste(img, (paste_x, paste_y))
         self.draw_paint()

@@ -8,6 +8,7 @@ board_mapping = {
     'RGcubexx': 1,
     'RG34xx': 2,
     'RG34xxSP': 2,
+    'RGSP': 2,
     'RG28xx': 3,
     'RG35xx+_P': 4,
     'RG35xxH': 5,
