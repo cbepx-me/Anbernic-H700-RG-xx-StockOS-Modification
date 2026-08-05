@@ -13,6 +13,7 @@ Stock OS Modification is a project built on the StockOS of Anbernic, which is en
 - RG34xx
 - RG34xx SP
 - RG35xx PRO
+- RGSP
 
 ## Include content
 1. Modified Stock OS images that support automatic partition expansion
