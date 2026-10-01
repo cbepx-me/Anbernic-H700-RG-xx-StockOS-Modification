@@ -170,11 +170,10 @@ def load_options_menu() -> None:
         gr.draw_paint()
         time.sleep(3)
         if command == "tools:apps":
-            os.system('sync')
             gr.draw_log(f"{translator.translate('Rebooting...')}", fill=status_color, outline=status_color, font=19)
             gr.draw_paint()
-            os.system('reboot')
-            time.sleep(300)
+            time.sleep(1)
+            sys.exit()
 
     elif input.key("DY"):
         opt_selected_position = (opt_selected_position + input.value) % len(opt_list)

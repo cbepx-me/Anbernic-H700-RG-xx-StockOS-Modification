@@ -44,9 +44,11 @@ class Set:
                 files = [
                     "/.config/retroarch/retroarch.cfg",
                     "/mnt/mmc/Roms/OPENBOR/Saves/",
+                    "/mnt/sdcard/Roms/OPENBOR/Saves/",
                     "/mnt/mmc/anbernic/autocores/",
                     "/mnt/mmc/anbernic/custom/",
                     "/mnt/mmc/openbor/Saves/",
+                    "/mnt/sdcard/openbor/Saves/",
                     "/mnt/vendor/deep/drastic-modify/res/config/",
                     "/mnt/vendor/deep/drastic-modify/res/resources/settings.json",
                     "/mnt/vendor/deep/drastic/config/",
@@ -68,16 +70,31 @@ class Set:
                     "/mnt/mmc/save_nds/",
                     "/mnt/mmc/saves_RA/",
                     "/mnt/mmc/states_RA/",
+                    "/mnt/sdcard/.config/ppsspp/PSP/PPSSPP_STATE/",
+                    "/mnt/sdcard/.config/ppsspp/PSP/SAVEDATA/",
+                    "/mnt/sdcard/.pcsx/memcards/",
+                    "/mnt/sdcard/.pcsx/sstates/",
+                    "/mnt/sdcard/.pixel_reader_store/",
+                    "/mnt/sdcard/openbor/Saves/",
+                    "/mnt/sdcard/save/",
+                    "/mnt/sdcard/save_nds/",
+                    "/mnt/sdcard/saves_RA/",
+                    "/mnt/sdcard/states_RA/",
                     "/mnt/vendor/deep/drastic-modify/res/backup/",
                     "/mnt/vendor/deep/drastic-modify/res/savestates/",
-                    "/mnt/vendor/deep/retro/system/dc/*.bin"
+                    "/mnt/vendor/deep/retro/system/dc/vmu_save_A1.bin",
+                    "/mnt/vendor/deep/retro/system/dc/vmu_save_B1.bin",
+                    "/mnt/vendor/deep/retro/system/dc/vmu_save_C1.bin",
+                    "/mnt/vendor/deep/retro/system/dc/vmu_save_D1.bin"
                 ]
             elif code == "theme":
                 backup_file = f"{storage_path}/theme.tar.gz"
                 output = "Theme files backup to:"
                 files = [
                     "/mnt/vendor/res1/",
-                    "/mnt/vendor/res2/"
+                    "/mnt/vendor/res2/",
+                    "/mnt/vendor/res3/",
+                    "/mnt/vendor/res4/"
                 ]
             backup_dir = os.path.dirname(backup_file)
             os.makedirs(backup_dir, exist_ok=True)

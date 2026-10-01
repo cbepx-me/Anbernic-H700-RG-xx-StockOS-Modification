@@ -92,6 +92,13 @@
       ]
     },
     {
+      "menu": "menu.ra_hotkey",
+      "menu_help": "menu.ra_hotkey.help",
+      "options": [],
+      "opt_help": [],
+      "operations": []
+    },
+    {
       "menu": "menu.ra_turbo",
       "menu_help": "menu.ra_turbo.help",
       "options": [

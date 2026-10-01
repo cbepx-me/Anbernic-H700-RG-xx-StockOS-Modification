@@ -39,5 +39,6 @@ do
         sleep 1
     fi
 done
+[ -x /mnt/mmc/autostart ] && /mnt/mmc/autostart
 kill -9 $(pidof volumeCtrl.dge)
 exit 0

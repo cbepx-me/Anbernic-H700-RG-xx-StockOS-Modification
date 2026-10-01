@@ -1,11 +1,14 @@
 import os
 import re
+import time
 import shutil
 from language import Translator
 from systems import systems
 from pathlib import Path
 import subprocess
 import filecmp
+from main import board_info
+from dmenu_attr import read_param, write_param, AttrFile
 
 translator = Translator()
 HW_MODEL = Path("/mnt/vendor/oem/board.ini").read_text().splitlines()[0].strip()
@@ -13,6 +16,43 @@ APPS_DIR = "/mnt/mmc/Roms/APPS"
 G_DIR = "/mnt/mod/ctrl/configs"
 G_CONF = Path(G_DIR) / "system.cfg"
 
+DEFAULT_HOTKEYS = {
+    "Quit": "START",
+    "Fast-Forward": "R2",
+    "Slow-Motion": "L2",
+    "Rewind": "nul",
+    "Pause": "X",
+    "Load State": "L1",
+    "Save State": "R1",
+    "Take Screenshot": "B",
+    "Show FPS": "Y"
+}
+
+RA_OPTIONS = {
+    "Quit": "input_exit_emulator_btn",
+    "Fast-Forward": "input_toggle_fast_forward_btn",
+    "Slow-Motion": "input_toggle_slowmotion_btn",
+    "Rewind": "input_rewind_btn",
+    "Pause": "input_pause_toggle_btn",
+    "Load State": "input_load_state_btn",
+    "Save State": "input_save_state_btn",
+    "Take Screenshot": "input_screenshot_btn",
+    "Show FPS": "input_fps_toggle_btn"
+}
+
+KEY_MAP = {
+    "A": "0",
+    "B": "1",
+    "X": "3",
+    "Y": "2",
+    "START": "7",
+    "SELECT": "6",
+    "L1": "4",
+    "R1": "5",
+    "L2": "9",
+    "R2": "10",
+    "nul": "nul"
+}
 
 def get_setting(key):
     """获取配置项的值"""
@@ -108,12 +148,8 @@ def handle_lang(value):
 
         # 更新语言文件
         Path("/mnt/vendor/oem/language.ini").write_text(str(lang_index))
-        src = Path(f"/mnt/mod/ctrl/res/{lang_index}")
-        dest = Path("/mnt/data/dmenu/dmenu_attr.ini")
-        if src.exists():
-            shutil.copy(src, dest)
-        else:
-            print(f"Warning: Language resource file not found: {src}")
+        write_param("language", lang_index)
+
     except ValueError:
         print(f"Invalid language code: {value}")
     except IndexError:
@@ -290,25 +326,56 @@ def handle_ra_turbo(value):
         print(f"Invalid ra_turbo value: {value}")
 
 
+import time   # 文件顶部记得加
+
 def handle_service(service, action, setting_key=None):
-    """通用服务处理函数"""
     if action not in ("0", "1", "2"):
         print(f"Invalid action for {service}: {action}")
         return
 
-    if setting_key:
-        if action == "0":  # Disable
+    if not setting_key:
+        return
+
+    # ---------------- SSH ----------------
+    if service == "ssh.service":
+        if action == "0":  # 永久禁用
             set_setting(setting_key, "0")
-            run_command(f"systemctl stop {service}")
-            run_command(f"systemctl disable {service}")
-        elif action == "1":  # Enable
+            # 先停 socket，再停 service（顺序很重要）
+            run_command("systemctl stop ssh.socket")
+            run_command("systemctl stop ssh.service")
+            # 关闭开机自启
+            run_command("systemctl disable ssh.socket")
+            run_command("systemctl disable ssh.service")
+            # 兜底：确保 sshd 进程真正退出
+            run_command("killall -q sshd || true")
+            time.sleep(0.3)
+
+        elif action == "1":  # 永久启用
             set_setting(setting_key, "1")
-            run_command(f"systemctl enable {service}")
-            run_command(f"systemctl start {service}")
-        elif action == "2":  # Temporary enable
+            run_command("systemctl enable ssh.socket")
+            run_command("systemctl enable ssh.service")
+            run_command("systemctl start ssh.service")
+
+        elif action == "2":  # 临时启用（仅本次开机有效）
             set_setting(setting_key, "0")
-            run_command(f"systemctl enable {service}")
-            run_command(f"systemctl start {service}")
+            run_command("systemctl disable ssh.socket")
+            run_command("systemctl disable ssh.service")
+            run_command("systemctl start ssh.service")
+        return
+
+    # ---------------- 其它服务（samba / syncthing） ----------------
+    if action == "0":
+        set_setting(setting_key, "0")
+        run_command(f"systemctl stop {service}")
+        run_command(f"systemctl disable {service}")
+    elif action == "1":
+        set_setting(setting_key, "1")
+        run_command(f"systemctl enable {service}")
+        run_command(f"systemctl start {service}")
+    elif action == "2":
+        set_setting(setting_key, "0")
+        run_command(f"systemctl disable {service}")
+        run_command(f"systemctl start {service}")
 
 
 def handle_font(value):
@@ -333,18 +400,17 @@ def handle_led(value):
     led_file = Path("/sys/class/power_supply/axp2202-battery/work_led")
     boot_cfg = Path(G_DIR) / "led_boot.cfg"
     launch_cfg = Path(G_DIR) / "led_launch.cfg"
-    exit_cfg = Path(G_DIR) / "led_exit.cfg"
 
     try:
         if value == "0":  # OFF
             led_file.write_text("0")
             boot_cfg.write_text("0")
-            for cfg in [launch_cfg, exit_cfg]:
+            for cfg in [launch_cfg]:
                 if cfg.exists():
                     cfg.unlink()
         elif value == "1":  # ON
             led_file.write_text("1")
-            for cfg in [boot_cfg, launch_cfg, exit_cfg]:
+            for cfg in [boot_cfg, launch_cfg]:
                 if cfg.exists():
                     cfg.unlink()
         elif value == "2":  # AUTO
@@ -352,7 +418,6 @@ def handle_led(value):
             if boot_cfg.exists():
                 boot_cfg.unlink()
             launch_cfg.write_text("0")
-            exit_cfg.write_text("1")
     except Exception as e:
         print(f"Error setting LED: {str(e)}")
 
@@ -387,18 +452,18 @@ class Set:
     def get_menu_option(self, menu_name: str) -> list[str]:
         for system in systems:
             if system["menu"] == menu_name:
-                if HW_MODEL not in ["RG35xxH", "RG40xxH", "RGcubexx", "RG34xxSP", "RG35xxPRO"]:
-                    options_list = system["options"]
-                    if HW_MODEL == "RG40xxV":
-                        if "menu.ra_turbo.9" in options_list:
-                            options_list.remove("menu.ra_turbo.9")
+                # 复制一份原始选项列表，避免修改原数据
+                options_list = system["options"].copy()
+                # 如果是 ra_turbo 且需要过滤
+                if menu_name == "menu.ra_turbo" and HW_MODEL not in ["RG35xxH", "RG40xxH", "RGcubexx", "RG34xxSP", "RG35xxPRO", "RGds"]:
+                    if HW_MODEL in ["RG40xxV", "RGdsplus"]:
+                        to_remove = ["menu.ra_turbo.9"]
                     else:
-                        if "menu.ra_turbo.8" in options_list:
-                            options_list.remove("menu.ra_turbo.8")
-                        if "menu.ra_turbo.9" in options_list:
-                            options_list.remove("menu.ra_turbo.9")
-                    return options_list
-                return system["options"]
+                        to_remove = ["menu.ra_turbo.8", "menu.ra_turbo.9"]
+                    for opt in to_remove:
+                        if opt in options_list:
+                            options_list.remove(opt)
+                return options_list
         return []
 
     def get_opt_help(self, opt_select, menu_name: str) -> list[str]:
@@ -435,7 +500,7 @@ class Set:
             "bezel": handle_bezel,
             "ra_com": handle_ra_com,
             "ra_turbo": handle_ra_turbo,
-            "samba": lambda v: handle_service("smbd nmbd", v, "global.samba"),
+            "samba": lambda v: handle_service("smbd.service nmbd.service", v, "global.samba"),
             "ssh": lambda v: handle_service("ssh.service", v, "global.ssh"),
             "syn": lambda v: handle_service("syncthing@root.service", v, "global.syncthing"),
             "font": handle_font,
@@ -496,7 +561,7 @@ class Set:
                 for i, op in enumerate(ops):
                     if op.endswith(cur_tz):
                         return i
-            except:
+            except Exception:
                 pass
             return 0
 
@@ -587,44 +652,41 @@ class Set:
                 "menu.syn": "global.syncthing"
             }
             key = key_map.get(menu_name)
-            # 读取配置值，同时检查服务实际状态（兼容临时启用状态）
             cfg_val = get_setting(key) or "0"
-            # 若配置为 0 但服务正在运行，可能为临时启用（值应为 2）
+
             if cfg_val == "0":
-                service_map = {
-                    "menu.samba": "smbd",
-                    "menu.ssh": "ssh",
-                    "menu.syn": "syncthing"
-                }
-                svc = service_map.get(menu_name)
-                if svc:
-                    # 简单检查进程是否存在
-                    code = subprocess.run(["pgrep", "-f", svc], capture_output=True)
-                    if code.returncode == 0:
-                        cfg_val = "2"  # 临时启用
+                if menu_name == "menu.ssh":
+                    r = subprocess.run(["systemctl", "is-active", "--quiet", "ssh.service"],
+                                    capture_output=True)
+                    running = (r.returncode == 0)
+                elif menu_name == "menu.samba":
+                    r = subprocess.run(["systemctl", "is-active", "--quiet", "smbd.service"],
+                                    capture_output=True)
+                    running = (r.returncode == 0)
+                else:
+                    r = subprocess.run(["systemctl", "is-active", "--quiet", "syncthing@root.service"],
+                                    capture_output=True)
+                    running = (r.returncode == 0)
+                if running:
+                    cfg_val = "2"
+
             for i, op in enumerate(ops):
                 if op.endswith(cfg_val):
                     return i
             return 0
 
         elif menu_name == "menu.led":
-            # 通过 work_led 文件和配置文件综合判断
-            led_file = Path("/sys/class/power_supply/axp2202-battery/work_led")
+            # 通过配置文件判断
             boot_cfg = Path(G_DIR) / "led_boot.cfg"
-            if led_file.exists():
-                try:
-                    val = led_file.read_text().strip()
-                    if val == "0":
-                        # 可能为 OFF 或 AUTO
-                        if boot_cfg.exists() and boot_cfg.read_text().strip() == "0":
-                            return 0  # OFF
-                        else:
-                            return 2  # AUTO
-                    else:
-                        return 1  # ON
-                except:
-                    pass
-            return 0
+            launch_cfg = Path(G_DIR) / "led_launch.cfg"
+            if boot_cfg.exists() and not launch_cfg.exists():
+                return 0  # OFF
+            elif not boot_cfg.exists() and not launch_cfg.exists():
+                return 1  # ON
+            elif not boot_cfg.exists() and launch_cfg.exists():
+                return 2  # AUTO
+            else:
+                return 1  # ON
 
         elif menu_name == "menu.p_key":
             val = get_setting("power.key") or "0"
@@ -671,8 +733,114 @@ class Set:
         return ""
 
     def get_menu_operation_list(self, menu_name: str) -> list:
-        """直接返回 operations 列表"""
         for system in systems:
             if system["menu"] == menu_name:
-                return system["operations"]
+                ops = system["operations"].copy()   # 同样复制
+                # 应用相同的过滤规则
+                if menu_name == "menu.ra_turbo" and HW_MODEL not in ["RG35xxH", "RG40xxH", "RGcubexx", "RG34xxSP", "RG35xxPRO", "RGds"]:
+                    # 需要根据选项名称找到对应的索引进行删除
+                    full_options = system["options"]   # 原始未过滤的选项列表
+                    if HW_MODEL in ["RG40xxV", "RGdsplus"]:
+                        to_remove_names = ["menu.ra_turbo.9"]
+                    else:
+                        to_remove_names = ["menu.ra_turbo.8", "menu.ra_turbo.9"]
+                    # 收集需要移除的索引（从后往前删）
+                    indices_to_remove = []
+                    for name in to_remove_names:
+                        try:
+                            idx = full_options.index(name)
+                            indices_to_remove.append(idx)
+                        except ValueError:
+                            pass
+                    # 按索引从大到小删除
+                    for idx in sorted(indices_to_remove, reverse=True):
+                        if idx < len(ops):
+                            ops.pop(idx)
+                return ops
         return []
+
+    def create_hotkey(self):
+        hotkey_file = Path("/mnt/mod/ctrl/configs/hotkey.cfg")
+        if not hotkey_file.exists():
+            with open(hotkey_file, 'w') as f:
+                for k,v in DEFAULT_HOTKEYS.items():
+                    f.write(f"{k}={v}\n")
+
+    def get_hotkey_map(self) -> dict:
+        """获取当前热键映射，若配置文件缺失则使用默认值"""
+        hotkey_file = Path("/mnt/mod/ctrl/configs/hotkey.cfg")
+        if not hotkey_file.exists():
+            self.create_hotkey()
+
+        map = {}
+        try:
+            with open(hotkey_file, 'r') as f:
+                for line in f:
+                    if '=' in line:
+                        k, v = line.strip().split('=', 1)
+                        if not v == "nul":
+                            map[k] = v
+        except Exception as e:
+            print(f"Error reading hotkey config: {e}")
+        return map
+
+    def set_hotkey(self, function: str, key: str) -> None:
+        """更新指定功能的快捷键并保存"""
+        hotkey_file = Path("/mnt/mod/ctrl/configs/hotkey.cfg")
+        current = self.get_hotkey_map()
+        current[function] = key
+        # 写入文件
+        try:
+            with open(hotkey_file, 'w') as f:
+                for k, v in current.items():
+                    f.write(f"{k}={v}\n")
+            os.sync()
+        except Exception as e:
+            print(f"Error saving hotkey: {e}")
+
+    def apply_hotkeys(self) -> None:
+        """将热键配置应用到实际模拟器（可扩展）"""
+        hotkey_file = Path("/mnt/mod/ctrl/configs/hotkey.cfg")
+        ra_appcfg_file = Path("/.config/retroarch/apphotkey.cfg")
+        if not hotkey_file.exists():
+            self.create_hotkey()
+
+        map = KEY_MAP.copy()
+        if board_info in ("RG35xxH", "RG40xxH", "RGcubexx", "RG34xxSP", "RG35xxPRO", "RG40xxV"):
+            map["L2"] = "10"
+            map["R2"] = "11"
+
+        try:
+            with open(ra_appcfg_file, 'w') as c:
+                with open(hotkey_file, 'r') as f:
+                    for line in f:
+                        if '=' in line:
+                            k, v = line.strip().split('=', 1)
+                            if k in DEFAULT_HOTKEYS and v in map:
+                                c.write(f'{RA_OPTIONS[k]} = "{map[v]}"\n')
+        except Exception as e:
+            print(f"Error saving apphotkey: {e}")
+
+        # 目前仅打印日志
+        print("Hotkeys updated.")
+
+    def clear_hotkey(self, function: str) -> None:
+        hotkey_file = Path("/mnt/mod/ctrl/configs/hotkey.cfg")
+        new_map = []
+        try:
+            if hotkey_file.exists():
+                with open(hotkey_file, 'r') as f:
+                    for line in f:
+                        if function in line and '=' in line:
+                            k, v = line.strip().split('=', 1)
+                            line = f'{k}=nul\n'
+                        new_map.append(line)
+                with open(hotkey_file, 'w') as f:
+                    f.writelines(new_map)
+        except Exception as e:
+            print(f"Error saving hotkey: {e}")
+
+    def reset_hotkey(self):
+        hotkey_file = Path("/mnt/mod/ctrl/configs/hotkey.cfg")
+        if hotkey_file.exists():
+            os.remove(hotkey_file)

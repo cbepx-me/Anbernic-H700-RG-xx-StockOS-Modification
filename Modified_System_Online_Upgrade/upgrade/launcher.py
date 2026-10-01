@@ -24,7 +24,7 @@ from dataclasses import dataclass
 # =========================
 from PIL import Image, ImageDraw, ImageFont
 
-cur_app_ver = "1.0.6"
+cur_app_ver = "1.1.5"
 
 def ensure_requests():
     try:
@@ -255,7 +255,7 @@ class InputHandler:
         self.cfg = cfg
         self.code_name: str = ""
         self.value: int = 0
-        self.board_info = Path(self.cfg.root_path + "/mnt/vendor/oem/board.ini").read_text().splitlines()[0]
+        self.board_info = Path("/mnt/vendor/oem/board.ini").read_text().splitlines()[0].strip()
         self.device_path = self._find_anbernic_device()
 
         if os.name == "nt":
@@ -539,7 +539,10 @@ class UIRenderer:
         paste_y = target_y + (target_height - img.height) // 2
         if self.hw_info == 3 and rota == 1 and self.hdmi_info != "HDMI=1":
             img = img.rotate(-90, expand=True)
-        self.active_image.paste(img, (paste_x, paste_y))
+        if img.mode == 'RGBA':
+            self.active_image.paste(img, (paste_x, paste_y), mask=img)
+        else:
+            self.active_image.paste(img, (paste_x, paste_y))
 
     def rect(self, xy, fill=None, outline=None, width: int = 1, radius: int = 0, shadow: bool = False) -> None:
         if shadow and radius > 0:
@@ -1001,13 +1004,13 @@ class LauncherApp:
     def __init__(self):
         self.cfg = Config()
         try:
-            board_info = Path(self.cfg.root_path + "/mnt/vendor/oem/board.ini").read_text().splitlines()[0]
+            board_info = Path("/mnt/vendor/oem/board.ini").read_text().splitlines()[0].strip()
         except:
             board_info = "RG35xxH"
         self.board_info = board_info
 
         try:
-            lang_index = int(Path(self.cfg.root_path + "/mnt/vendor/oem/language.ini").read_text().splitlines()[0])
+            lang_index = int(Path("/mnt/vendor/oem/language.ini").read_text().splitlines()[0].strip())
         except:
             lang_index = 2
 

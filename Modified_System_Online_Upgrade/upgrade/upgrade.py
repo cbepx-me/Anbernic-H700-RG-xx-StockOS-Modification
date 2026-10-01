@@ -20,6 +20,7 @@ import os
 import shutil
 import socket
 import struct
+import subprocess
 import sys
 import time
 import zipfile
@@ -34,10 +35,7 @@ from urllib.error import ContentTooShortError, URLError
 # =========================
 from PIL import Image, ImageDraw, ImageFont
 
-cur_app_ver = "3.0.3"
-base_ver = "3.8.0"
-base_date = "20250211"
-source = "source/"
+cur_app_ver = "3.0.5"
 
 # =========================
 # Logging Setup
@@ -70,10 +68,20 @@ def read_current_os_version() -> str:
     return "Unknown"
 
 os_cur_ver = read_current_os_version()
+
+base_ver = "3.8.0"
+base_date = "20250211"
+source = "source/"
+
 if os_cur_ver >= "20251206":
     base_ver = "3.9.0"
     base_date = "20251206"
     source = "390/"
+
+if os_cur_ver >= "20260520":
+    base_ver = "3.9.9"
+    base_date = "20260520"
+    source = "400/"
 
 def ensure_requests():
     try:
@@ -330,7 +338,7 @@ class InputHandler:
         self.cfg = cfg
         self.code_name: str = ""
         self.value: int = 0
-        self.board_info = Path("/mnt/vendor/oem/board.ini").read_text().splitlines()[0]
+        self.board_info = Path("/mnt/vendor/oem/board.ini").read_text().splitlines()[0].strip()
         self.device_path = self._find_anbernic_device()
 
     def _find_anbernic_device(self):
@@ -1058,7 +1066,7 @@ class Updater:
         return dit
 
     def draw_home(self, model: str, cur_ver: str, new_ver: str, os_cur_ver: str,
-                  actions_enabled: bool, append_enabled: bool) -> None:
+                  update_enabled: bool, append_enabled: bool) -> None:
         ui = self.ui
         t = self.t
 
@@ -1099,7 +1107,7 @@ class Updater:
         if append_enabled:
             status_text = t.t("UPDATE AVAILABLE")
             ui.status_badge((info_x, status_y),  f"{status_text} +", "success")
-        elif actions_enabled:
+        elif update_enabled:
             status_text = t.t("UPDATE AVAILABLE")
             ui.status_badge((info_x, status_y), status_text, "success")
         else:
@@ -1114,7 +1122,7 @@ class Updater:
         total_button_width = button_width * 3 + button_spacing * 2
         start_x = (ui.x_size - total_button_width) // 2
 
-        if actions_enabled:
+        if update_enabled or append_enabled:
             ui.button([start_x, button_y, start_x + button_width, button_y + button_height],
                       t.t("Update"), "A", True)
             start_x += button_width + button_spacing
@@ -1127,7 +1135,7 @@ class Updater:
                   t.t("Exit"), "SE", False)
 
         tip_y = status_y + 50
-        if actions_enabled:
+        if update_enabled or append_enabled:
             tip_text = t.t("Tip: Press A to start update • Y for info • SELECT to exit")
         else:
             tip_text = t.t("Tip: Y for update info • SELECT to exit")
@@ -1512,7 +1520,7 @@ class Updater:
                         lines, text_x, panel_height, text_width, font, current_page
                     )
 
-    def start_update(self, update_file_list: list) -> None:
+    def start_update(self, update_file_list: list, install_active: bool=False) -> None:
         ui = self.ui
         t = self.t
 
@@ -1547,9 +1555,9 @@ class Updater:
         mmc_space = shutil.disk_usage("/mnt/mmc").free
         sdcard_space = shutil.disk_usage("/mnt/sdcard").free
         if tmp_space == sdcard_space:
-            self.cfg.target_path = "/mnt/mmc/tmp" if mmc_space > tmp_space else "/tmp/tmp"
+            self.cfg.target_path = "/mnt/mmc/update/mod/patch"
         else:
-            self.cfg.target_path = "/mnt/mmc/tmp" if mmc_space > sdcard_space else "/mnt/sdcard/tmp"
+            self.cfg.target_path = "/mnt/mmc/update/mod/patch" if mmc_space > sdcard_space else "/mnt/sdcard/update/mod/patch"
         LOGGER.info("Starting update from path %s", self.cfg.target_path)
 
         total_size = 1024 * 1024 * 1024
@@ -1608,45 +1616,57 @@ class Updater:
                 shutil.rmtree(self.cfg.target_path)
                 MainApp.exit_cleanup(3, self.ui, self.cfg)
 
-        LOGGER.info("Starting install process")
-        mod_path = "/mnt/mod"
-        update_path = os.path.join(mod_path, 'update')
-        data_path = os.path.join(update_path, 'mod', 'data')
-        if not os.path.exists(data_path):
-            os.makedirs(data_path, exist_ok=True)
-        if os.path.isdir(update_path):
-            shutil.rmtree(update_path)
-        os.makedirs(update_path, exist_ok=True)
+        if install_active:
+            install_tmp_path = os.path.join(self.cfg.target_path, "tmp")
+            for item in update_file_list:
+                source_file = os.path.join(self.cfg.target_path, item['filename'])
+                shutil.rmtree(install_tmp_path, ignore_errors=True)
+                os.makedirs(install_tmp_path, exist_ok=True)
+                if os.path.exists(source_file):
+                    if self.unpack_zip(source_file, install_tmp_path) == 0:
+                        LOGGER.info(f"{item['filename']}: Extracting completed")
+                        install_script = os.path.join(install_tmp_path, "install.sh")
+                        has_install = os.path.isfile(install_script)
+                        if has_install:
+                            LOGGER.info(f"Executing install.sh for {item['filename']}")
+                            self.draw_message_center(f'{self.t.t("Installing")}: {item["filename"]}', "✪", "info")
+                            try:
+                                st = os.stat(os.path.join(install_tmp_path, "install.sh"))
+                                os.chmod(os.path.join(install_tmp_path, "install.sh"), st.st_mode | 0o111)
+                                result = subprocess.run(
+                                    ["/bin/bash", "install.sh"],
+                                    cwd=install_tmp_path,
+                                    capture_output=True,
+                                    text=True,
+                                    timeout=300
+                                )
+                                if result.returncode != 0:
+                                    LOGGER.error(f"install.sh failed with return code {result.returncode}")
+                                    LOGGER.error(f"stdout: {result.stdout}")
+                                    LOGGER.error(f"stderr: {result.stderr}")
+                                    self.draw_message_center(f'{self.t.t("Installation Failed")}: {item["filename"]}',
+                                                             "✘", "error")
+                                    shutil.rmtree(install_tmp_path, ignore_errors=True)
+                                LOGGER.info(f"install.sh executed successfully")
+                                self.draw_message_center(f'{self.t.t("Installation Complete")}: {item["filename"]}', "✔",
+                                                         "success")
+                            except Exception as e:
+                                LOGGER.error(f"Error executing install.sh: {e}")
+                                self.draw_message_center(f'{self.t.t("Installation Failed")}: {item["filename"]}', "✘",
+                                                         "error")
+                                shutil.rmtree(install_tmp_path, ignore_errors=True)
+                    else:
+                        LOGGER.error(f"Error unpacking update file: {item['filename']}")
+                        self.draw_message_center(t.t("Extraction Error"), t.t("Failed to extract update files."), "✘",
+                                                 "error")
+                        shutil.rmtree(self.cfg.target_path)
+                        MainApp.exit_cleanup(4, self.ui, self.cfg)
 
-        for item in update_file_list:
-            source_file = os.path.join(self.cfg.target_path, item['filename'])
-            target_file = os.path.join(data_path, item['filename'])
-            if item['filename'] == 'update.zip':
-                if self.unpack_zip(source_file, mod_path) == 0:
-                    LOGGER.info(f"{item['filename']}: installation completed")
-                else:
-                    LOGGER.error(f"Error unpacking update file: {item['filename']}")
-                    self.draw_message_center(t.t("Extraction Error"), t.t("Failed to extract update files."), "✘",
-                                             "error")
-                    shutil.rmtree(self.cfg.target_path)
-                    MainApp.exit_cleanup(4, self.ui, self.cfg)
-            else:
-                try:
-                    self.draw_message_center(t.t("System Update"), t.t("Extracting files..."), "✪", "info")
-                    shutil.copy(source_file, target_file)
-                    LOGGER.info(f"{item['filename']}: installation completed")
-                except Exception as e:
-                    LOGGER.error(f"Error copy update file: {item['filename']}")
-                    self.draw_message_center(t.t("Extraction Error"), t.t("Failed to extract update files."), "✘",
-                                             "error")
-                    shutil.rmtree(self.cfg.target_path)
-                    MainApp.exit_cleanup(4, self.ui, self.cfg)
 
-        self.draw_message_center(t.t("System Update"), t.t("Ready, start upgrading..."), "✔", "success")
-        time.sleep(3)
-        autostart = True
-        shutil.rmtree(self.cfg.target_path)
-        MainApp.reboot(self.ui, self.cfg, autostart)
+            self.draw_message_center(t.t("System Update"), t.t("Ready, start upgrading..."), "✔", "success")
+            time.sleep(3)
+            shutil.rmtree(self.cfg.target_path)
+            MainApp.reboot(self.ui, self.cfg)
 
     def start_append(self, update_url, md5) -> None:
         ui = self.ui
@@ -1723,7 +1743,7 @@ class Updater:
             if self.unpack_zip(self.cfg.tmp_update, target_path) == 0:
                 self.draw_message_center(t.t("System Update"), t.t("Ready, start upgrading..."), "✔", "success")
                 time.sleep(3)
-                MainApp.reboot(self.ui, self.cfg)
+                MainApp.reboot(self.ui, self.cfg, True)
             else:
                 LOGGER.error("Error unpacking update file")
                 self.draw_message_center(t.t("Extraction Error"), t.t("Failed to extract update files."), "✘", "error")
@@ -1784,7 +1804,7 @@ class MainApp:
         self.cfg = Config()
 
         try:
-            board_info = Path("/mnt/vendor/oem/board.ini").read_text().splitlines()[0]
+            board_info = Path("/mnt/vendor/oem/board.ini").read_text().splitlines()[0].strip()
             LOGGER.info("Detected board: %s", board_info)
         except (FileNotFoundError, IndexError) as e:
             LOGGER.warning("Board detection failed: %s, using default RG35xxH", e)
@@ -1792,7 +1812,7 @@ class MainApp:
         self.board_info = board_info
 
         try:
-            lang_index_raw = Path("/mnt/vendor/oem/language.ini").read_text().splitlines()[0]
+            lang_index_raw = Path("/mnt/vendor/oem/language.ini").read_text().splitlines()[0].strip()
             lang_index = int(lang_index_raw)
             LOGGER.info("Detected language index: %s", lang_index)
         except (FileNotFoundError, IndexError, ValueError) as e:
@@ -1833,19 +1853,23 @@ class MainApp:
                 if os.path.exists(p):
                     os.remove(p)
             if auto:
-                update_dir = "/mnt/mod/ctrl"
+                update_dir = "/mnt/mmc"
                 os.makedirs(update_dir, exist_ok=True)
                 update_script_path = os.path.join(update_dir, "autostart")
                 update_script_content = """#!/bin/bash
 
-if [ -f /mnt/mod/update/update.sh ]; then
-  chmod +x /mnt/mod/update/update.sh
-  /mnt/mod/update/update.sh
-fi
+rm -f $0
+for TF_PATH in mmc sdcard
+do
+    [ -f /mnt/${TF_PATH}/update/update.sh ] && /mnt/${TF_PATH}/update/update.sh
+done
+exit 0
 """
                 with open(update_script_path, "w") as f:
                     f.write(update_script_content)
                 os.chmod(update_script_path, 0o755)
+                os.sync()
+                sys.exit(0)
 
             ui.draw_end()
             os.sync()
@@ -1899,7 +1923,7 @@ fi
             if update_file_dict.get(self.board_info):
                 update_file_list = update_file_dict.get('default') + update_file_dict.get(self.board_info)
             else:
-                update_file_list = update_file_dict.get('default') + update_file_dict.get('RG35xxSP')
+                update_file_list = update_file_dict.get('default')
 
             update_ver = update_file_dict.get('version', 'Unknown')
             LOGGER.info(f'update: v{update_ver}')
@@ -1915,24 +1939,27 @@ fi
         append_active = False
 
         if (
-                cur_ver != "Unknown" and update_ver != "Unknown" and cur_ver < base_ver and bool(update_file_list)
+                cur_ver != "Unknown" and data_ver != "Unknown" and base_ver <= cur_ver < data_ver and bool(data_update_url)
         ) or (
-                cur_ver == "Unknown" and os_cur_ver >= base_date and update_ver != "Unknown" and bool(update_file_list)
+                cur_ver == "Unknown" and os_cur_ver >= base_date and data_ver != "Unknown" and bool(data_update_url)
+        ):
+            append_active = True
+
+        if (
+                cur_ver != "Unknown" and update_ver != "Unknown" and base_ver <= cur_ver < update_ver and data_ver < update_ver and bool(update_file_list)
+        ) or (
+                cur_ver == "Unknown" and os_cur_ver >= base_date and update_ver != "Unknown" and data_ver < update_ver and bool(update_file_list)
         ):
             update_active = True
             new_ver = update_ver
-        elif cur_ver != "Unknown" and data_ver != "Unknown" and cur_ver < data_ver and bool(data_update_url):
-            update_active = True
-            append_active = True
-            new_ver = data_ver
         else:
-            new_ver = data_ver
+            new_ver = update_ver if update_ver > data_ver else data_ver
         self.skip_first_input = False
 
         while True:
             try:
                 self.updater.draw_home(self.board_info, cur_ver, new_ver, os_cur_ver,
-                                       actions_enabled=update_active, append_enabled=append_active)
+                                       update_enabled=update_active, append_enabled=append_active)
 
                 if self.skip_first_input:
                     self.input.reset()
@@ -1943,11 +1970,14 @@ fi
                 if self.input.is_key("SELECT"):
                     MainApp.exit_cleanup(0, self.ui, self.cfg)
 
-                elif update_active and self.input.is_key("A"):
-                    if append_active:
+                elif self.input.is_key("A"):
+                    if append_active and not update_active:
                         self.updater.start_append(data_update_url, data_md5)
+                    elif not append_active and update_active:
+                        self.updater.start_update(update_file_list, install_active=True)
                     else:
-                        self.updater.start_update(update_file_list)
+                        self.updater.start_update(update_file_list, install_active=False)
+                        self.updater.start_append(data_update_url, data_md5)
 
                 elif self.input.is_key("Y"):
                     self.updater.show_info(update_info)

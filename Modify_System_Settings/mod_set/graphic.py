@@ -197,12 +197,14 @@ class UserInterface:
         self.draw_text((pos[0] + 5, pos[1] + 5), text)
 
     def row_list_dual(self, left_text: str, right_text: str, pos: tuple[int, int], width: int, selected: bool,
-                      show_arrows: bool = False) -> None:
+                      show_arrows: bool = False, arrow: str = " ▶") -> None:
         """绘制左右分栏的列表项，左侧显示功能名，右侧显示当前值"""
         # 如果选中且 show_arrows，显示左右箭头提示
         if show_arrows:
             # 在右侧文字左右边绘制箭头
             right_text="< "+right_text+" >"
+        else:
+            right_text=right_text + arrow
         # 背景
         self.draw_rectangle_r(
             [pos[0], pos[1], pos[0] + width, pos[1] + 32],

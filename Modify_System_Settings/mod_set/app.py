@@ -23,11 +23,20 @@ help_txt = ""
 skip_input_check = True
 set = Set()
 gr = UserInterface()
+hotkey_functions = ["Quit", "Fast-Forward", "Slow-Motion", "Rewind", "Pause", "Load State", "Save State", "Take Screenshot", "Show FPS"]
+key_code = ["A", "B", "X", "Y", "START", "SELECT", "L1", "R1", "L2", "R2"]
+hotkey_selected_index = 0
+hotkey_editing = False
+exit_is = True
 
 try:
     ver = Path("/mnt/mod/ctrl/configs/ver.cfg").read_text().splitlines()[0]
 except (FileNotFoundError, IndexError):
     ver = 'Unknown'
+
+ra_appcfg_file = Path("/.config/retroarch/apphotkey.cfg")
+if not ra_appcfg_file.exists():
+    set.apply_hotkeys()
 
 x_size, y_size, max_elem = screen_resolutions.get(hw_info, (640, 480, 7))
 
@@ -42,8 +51,8 @@ elif board_info == 'RG28xx':
 else:
     remove_lists = []
 
-mode1_lists = ['menu.ra_hot', 'menu.ra_turbo', 'menu.ra_com', 'menu.shader', 'menu.bezel', 'menu.dark', 'menu.varc', 'menu.aca', 'menu.als']
-mode2_lists = ['menu.ra_hot', 'menu.ra_turbo', 'menu.ra_com', 'menu.shader', 'menu.bezel', 'menu.dark', 'menu.varc', 'menu.aca', 'menu.als', "menu.rtgg", "menu.ra_cfg"]
+mode1_lists = ['menu.ra_hot', 'menu.ra_hotkey', 'menu.ra_turbo', 'menu.ra_com', 'menu.shader', 'menu.bezel', 'menu.dark', 'menu.varc', 'menu.aca', 'menu.als']
+mode2_lists = ['menu.ra_hot', 'menu.ra_hotkey', 'menu.ra_turbo', 'menu.ra_com', 'menu.shader', 'menu.bezel', 'menu.dark', 'menu.varc', 'menu.aca', 'menu.als', "menu.rtgg", "menu.ra_cfg"]
 
 def is_connected():
     test_servers = [
@@ -83,7 +92,7 @@ def update() -> None:
     else:
         input.check()
 
-    if input.key("SELECT"):
+    if input.key("SELECT") and exit_is:
         gr.draw_log(
             f"{translator.translate('Exiting...')}", fill=gr.colorBlue, outline=gr.colorBlueD1
         )
@@ -95,6 +104,8 @@ def update() -> None:
 
     if current_window == "menu":
         load_menu_menu()
+    elif current_window == "ra_hotkey":
+        load_hotkey_menu()
     elif current_window == "options":
         load_options_menu()
     else:
@@ -154,21 +165,17 @@ def load_menu_menu() -> None:
         if input.key("DY"):
             menu_selected_position = (menu_selected_position + input.value) % len(all_menu)
         elif input.key("DX"):
-            # 左右键切换当前选中项的选项值
-            direction = input.value  # 1 或 -1
+            direction = input.value
             current_menu = all_menu[menu_selected_position]
             ops = set.get_menu_operation_list(current_menu)
             if ops:
-                # 获取当前索引
                 idx = current_option_index.get(current_menu, set.get_current_option_index(current_menu))
-                # 计算新索引（循环）
                 new_idx = (idx + direction) % len(ops)
-                # 更新缓存
                 current_option_index[current_menu] = new_idx
-                # 立即执行对应的操作
                 command = ops[new_idx]
                 success, output = set.execute_command(command)
-                # 显示短暂提示
+                if command.startswith('lang:'):
+                    update_translator_from_file()
                 if success:
                     status_msg = f"{translator.translate('Done')}: {translator.translate(current_menu)} -> {translator.translate(set.get_menu_option(current_menu)[new_idx])}"
                     status_color = gr.colorBlue
@@ -194,8 +201,11 @@ def load_menu_menu() -> None:
                     len(all_menu) - 1, menu_selected_position + 100
                 )
         elif input.key("A"):
-            current_window = "options"
             selected_menu = all_menu[menu_selected_position]
+            if selected_menu == "menu.ra_hotkey":
+                current_window = "ra_hotkey"
+            else:
+                current_window = "options"
             skip_input_check = True
             return
 
@@ -218,7 +228,10 @@ def load_menu_menu() -> None:
         if idx < len(options):
             right_text = translator.translate(options[idx])
         selected = (i == (menu_selected_position % max_elem))
-        show_arrows = True
+        if menu == "menu.ra_hotkey":
+            show_arrows = False
+        else:
+            show_arrows = True
         gr.row_list_dual(
             translator.translate(menu),
             right_text,
@@ -356,3 +369,133 @@ def load_options_menu() -> None:
 
     gr.draw_paint()
 
+def load_hotkey_menu() -> None:
+    global hotkey_selected_index, skip_input_check, current_window, exit_is
+
+    exit_is = False
+
+    # 获取当前映射（含默认值）
+    hotkey_map = set.get_hotkey_map()
+
+    # 分页显示
+    total = len(hotkey_functions)
+    max_elem = gr.max_elem
+
+    # ---- 输入处理 ----
+    if input.key("DY"):
+        hotkey_selected_index = (hotkey_selected_index + input.value) % total
+    elif input.key("L1"):
+        hotkey_selected_index = max(0, hotkey_selected_index - max_elem)
+    elif input.key("R1"):
+        hotkey_selected_index = min(total - 1, hotkey_selected_index + max_elem)
+    elif input.key("L2"):
+        hotkey_selected_index = max(0, hotkey_selected_index - 100)
+    elif input.key("R2"):
+        hotkey_selected_index = min(total - 1, hotkey_selected_index + 100)
+    elif input.key("A"):
+        load_hotkey()
+    elif input.key("START"):
+        set.reset_hotkey()
+        skip_input_check = True
+        return
+    elif input.key("X"):
+        func = hotkey_functions[hotkey_selected_index]
+        set.clear_hotkey(func)
+        skip_input_check = True
+        return
+    elif input.key("B"):
+        set.apply_hotkeys()
+        current_window = "menu"
+        hotkey_selected_index = 0
+        skip_input_check = True
+        exit_is = True
+        return
+
+    gr.draw_clear()
+    gr.draw_rectangle_r([10, 40, x_size - 10, y_size - 40], 15,
+                        fill=gr.colorGrayD2, outline=None)
+    gr.draw_text((x_size / 2, 20),
+                 f"{translator.translate('Custom Hotkeys')} - {translator.translate('Press A to set')}",
+                 font=23, anchor="mm")
+
+    start_idx = int(hotkey_selected_index / max_elem) * max_elem
+    end_idx = min(start_idx + max_elem, total)
+    for i in range(start_idx, end_idx):
+        func = hotkey_functions[i]
+        key = hotkey_map.get(func, "")
+        selected = (i == hotkey_selected_index)
+        gr.row_list_dual(
+            translator.translate(func),
+            key if key else "-",   # 无键显示 "-"
+            (20, 50 + ((i - start_idx) * 35)),
+            x_size - 40,
+            selected,
+            show_arrows=False,
+            arrow=""
+        )
+
+    # 帮助信息
+    help_txt = 'Select a function and press A to change its hotkey. Only supports the "A", "B", "X", "Y", "START", "SELECT", "L1", "R1", "L2", "R2" buttons.'
+    gr.draw_help(f"{translator.translate(help_txt)}",
+                 fill=None, outline=gr.colorBlue)
+
+    # 底部按钮
+    gr.button_circle((30, button_y), "A", f"{translator.translate('Set')}")
+    gr.button_circle((150, button_y), "X", f"{translator.translate('Clear')}")
+    gr.button_rectangle((270, button_y), "START", f"{translator.translate('Reset')}")
+    gr.button_circle((button_x, button_y), "B", f"{translator.translate('Back')}")
+
+    gr.draw_paint()
+
+def load_hotkey() -> None:
+    global hotkey_selected_index, hotkey_editing, skip_input_check, current_window
+
+    used_button = list(set.get_hotkey_map().values())
+
+    while True:
+        # 编辑模式：显示提示，等待新按键
+        gr.draw_clear()
+        gr.draw_text((x_size / 2, y_size / 2 - 20),
+                     f"{translator.translate('Press new key... (M to cancel)')}",
+                     font=23, anchor="mm")
+        gr.draw_paint()
+
+        # 处理按键
+        input.reset_input()
+        input.check()
+        if input.key("MENUF"):
+            skip_input_check = True
+            return
+        # 检测是否有其他按键按下（忽略已处理的B）
+        if input.value != 0 and input.codeName in key_code:
+            new_key = input.codeName
+            if new_key in used_button:
+                gr.draw_log(f"{translator.translate('Error')}: {translator.translate('Button')} {new_key} {translator.translate('is already occupied.')}",
+                            fill=gr.colorBlue, outline=gr.colorBlueD1)
+                gr.draw_paint()
+                time.sleep(3)
+            else:
+                used_button.append(new_key)
+                function = hotkey_functions[hotkey_selected_index]
+                set.set_hotkey(function, new_key)   # 更新并保存
+                hotkey_editing = False
+                skip_input_check = True
+                # 显示成功提示
+                gr.draw_log(f"{translator.translate('Mapped')}: {function} -> {new_key}",
+                            fill=gr.colorBlue, outline=gr.colorBlueD1)
+                gr.draw_paint()
+                time.sleep(1)
+            return
+
+def update_translator_from_file():
+    """从 /mnt/vendor/oem/language.ini 读取当前语言代码并更新 translator"""
+    global translator
+    try:
+        lang_index = int(Path("/mnt/vendor/oem/language.ini").read_text().strip())
+        # 语言代码列表（与 set.py 中的 handle_lang 一致）
+        lang_codes = ["zh_CN", "zh_TW", "en_US", "ja_JP", "ko_KR", "es_LA", "ru_RU", "de_DE", "fr_FR", "pt_BR"]
+        if 0 <= lang_index < len(lang_codes):
+            code = lang_codes[lang_index]
+            translator.set_language(code)
+    except Exception as e:
+        print(f"Failed to update translator from file: {e}")

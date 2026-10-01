@@ -67,6 +67,7 @@ case $1 in
     
     apps) # Reinstall apps
         touch /mnt/mod/update_me
+        touch "$progdir/reboot.flg"
     ;;
 
     bezels) # Reinstall bezels
