@@ -121,5 +121,11 @@
     "Launcher": "Меню запуска",
     "Choose an option": "Выберите действие",
     "System Updater": "Обновление системы",
-    "Select": "Выбрать"
+    "Select": "Выбрать",
+    "Error": "Ошибка",
+    "An unexpected error occurred": "Произошла непредвиденная ошибка",
+    "Update Failed": "Ошибка обновления",
+    "Failed to update": "Не удалось обновить",
+    "Insufficient TF card space": "Недостаточно места на карте памяти",
+    "Please reserve 1GB of free space on TF1 or TF2": "Освободите не менее 1 ГБ на TF1 или TF2"
 }
