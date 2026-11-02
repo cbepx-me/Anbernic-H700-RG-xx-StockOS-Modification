@@ -1390,6 +1390,8 @@ class LauncherApp:
         max_retries = 3
         retry_count = 0
         restart = False
+        strong_etag = None
+        known_total = None
         try:
             self._stop_all_threads()
             self._shutdown_flag = False
@@ -1405,22 +1407,37 @@ class LauncherApp:
                 offset = 0 if restart else file_size
                 headers = self.cfg.headers.copy()
                 headers.pop('Range', None)
+                headers.pop('If-Range', None)
                 # Byte offsets and Content-Length must describe the saved bytes.
                 headers['Accept-Encoding'] = 'identity'
                 if offset:
                     headers['Range'] = f'bytes={offset}-'
+                    if strong_etag:
+                        headers['If-Range'] = strong_etag
                 response = None
                 try:
                     response = self.session.get(url, stream=True, timeout=(60, 300), headers=headers)
+                    response_etag = response.headers.get('etag')
+                    if (offset and response.status_code in (206, 416) and strong_etag
+                            and response_etag is not None and response_etag != strong_etag):
+                        # Never combine bytes from different versions of the resource.
+                        if retry_count >= max_retries:
+                            return False
+                        retry_count += 1
+                        restart = True
+                        strong_etag = known_total = None
+                        continue
                     if response.status_code == 416 and offset:
                         match = re.fullmatch(r'bytes \*/(\d+)', response.headers.get('content-range', ''))
-                        if match and offset == int(match.group(1)):
+                        if (match and offset == int(match.group(1))
+                                and (known_total is None or offset == known_total)):
                             # The caller still verifies the complete file's checksum.
                             return True
                         if retry_count >= max_retries:
                             return False
                         retry_count += 1
                         restart = True
+                        strong_etag = known_total = None
                         continue
 
                     response.raise_for_status()
@@ -1437,19 +1454,31 @@ class LauncherApp:
                         if not match:
                             raise ValueError("Missing or invalid Content-Range")
                         start, end, total_size = map(int, match.groups())
-                        if start != offset or end < start or end != total_size - 1:
-                            raise ValueError("Content-Range does not match the requested remainder")
+                        if start != offset or end < start or end >= total_size:
+                            raise ValueError("Content-Range does not match the requested offset")
                         expected_size = end - start + 1
                         if body_size is not None and body_size != expected_size:
                             raise ValueError("Content-Length disagrees with Content-Range")
                         body_size = expected_size
+                        if known_total is not None and total_size != known_total:
+                            if retry_count >= max_retries:
+                                return False
+                            retry_count += 1
+                            restart = True
+                            strong_etag = known_total = None
+                            continue
                     elif response.status_code == 200:
                         # A full response replaces, never appends to, the old partial file.
                         offset = 0
                         total_size = body_size
+                        strong_etag = None
                     else:
                         raise ValueError("Unexpected download response status")
 
+                    known_total = total_size
+                    if response_etag and re.fullmatch(r'"[\x21\x23-\x7e\x80-\xff]*"', response_etag):
+                        strong_etag = response_etag
+                    restart = False
                     received = 0
                     mode = 'ab' if offset else 'wb'
                     with open(local_path, mode) as f:
@@ -1468,6 +1497,9 @@ class LauncherApp:
                                 progress_hook(offset + received, 1, total_size, num_file)
                     if body_size is not None and received != body_size:
                         raise requests.exceptions.ChunkedEncodingError("Incomplete download body")
+                    if response.status_code == 206 and offset + received < total_size:
+                        # A server may limit each range. Valid ranges always advance.
+                        continue
                     return True
                 except (requests.exceptions.ChunkedEncodingError,
                         requests.exceptions.ConnectionError,
@@ -1477,7 +1509,6 @@ class LauncherApp:
                         raise
                     LOGGER.warning("Download interrupted, retrying (%s/%s): %s",
                                    retry_count, max_retries, e)
-                    restart = False
                     time.sleep(2 * retry_count)
                 finally:
                     if response is not None:
