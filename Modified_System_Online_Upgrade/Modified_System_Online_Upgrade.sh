@@ -15,6 +15,10 @@ pkill -f "main.py" 2>/dev/null || true
 
 export PYSDL2_DLL_PATH="/usr/lib"
 
+app_package_compatible() {
+    python3 "$progdir/upgrade/update_package.py" "$APP_FILE"
+}
+
 while true
 do
     # Legacy downloads are unverified; orphan handoff files are never installable.
@@ -29,9 +33,20 @@ do
     if [ -f "$NEW_FILE" ]; then
         chmod +x "$NEW_FILE"
         if bash -n "$NEW_FILE" 2>/dev/null && grep -qx 'APP_UPDATE_PROTOCOL=2' "$NEW_FILE"; then
-            cat "$NEW_FILE" > "$SCRIPT_NAME"
-            rm -f "$NEW_FILE"
-            exec "$SCRIPT_NAME" "$@"
+            staged_wrapper=$(mktemp "${SCRIPT_NAME}.XXXXXX")
+            if [ -n "$staged_wrapper" ] &&
+               cat "$NEW_FILE" > "$staged_wrapper" &&
+               bash -n "$staged_wrapper" &&
+               grep -qx 'APP_UPDATE_PROTOCOL=2' "$staged_wrapper" &&
+               chmod 755 "$staged_wrapper" &&
+               mv -f "$staged_wrapper" "$SCRIPT_NAME"; then
+                rm -f "$NEW_FILE"
+                exec "$SCRIPT_NAME" "$@"
+            else
+                rm -f "$staged_wrapper"
+                echo "Wrapper replacement failed; keeping the installed wrapper"
+                exit 1
+            fi
         else
             echo "The new wrapper is invalid or lacks the verified-update protocol; keeping the current wrapper"
             rm -f "$NEW_FILE"
@@ -44,12 +59,17 @@ do
         rm -f "$APP_MD5"
         if [[ "$expected_md5" =~ ^[[:xdigit:]]{32}$ ]] &&
            [ "${actual_md5,,}" = "${expected_md5,,}" ] &&
-           tar -tf "$APP_FILE" >/dev/null 2>&1; then
+           tar -tf "$APP_FILE" >/dev/null 2>&1 &&
+           app_package_compatible; then
             if ! tar -xf "$APP_FILE" -C "$progdir/"; then
                 echo "Application update extraction failed"
+                rm -f "$APP_FILE"
+                exit 1
             fi
         else
-            echo "Ignoring unverified or invalid application update"
+            echo "Rejecting unverified, invalid or incompatible application update"
+            rm -f "$APP_FILE"
+            exit 1
         fi
         rm -f "$APP_FILE"
     else

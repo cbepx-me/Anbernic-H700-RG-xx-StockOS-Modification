@@ -20,6 +20,7 @@ import math
 import os
 import shutil
 import socket
+import select
 import struct
 import subprocess
 import sys
@@ -360,32 +361,45 @@ class InputHandler:
             return fallback
         raise RuntimeError("No ANBERNIC input device found")
 
-    def poll(self) -> None:
+    def poll(self, stop_event=None) -> None:
+        if stop_event is not None and stop_event.is_set():
+            return
+        fd = None
         try:
-            with open(self.device_path, "rb") as f:
-                while True:
-                    event = f.read(24)
-                    if not event:
-                        break
-                    (tv_sec, tv_usec, etype, kcode, kvalue) = struct.unpack(
-                        "llHHI", event
-                    )
-                    if kvalue != 0:
-                        if kvalue != 1:
-                            kvalue = -1
-                        self.code_name = self.cfg.keymap.get(kcode, str(kcode))
-                        self.value = kvalue
-                        LOGGER.debug(
-                            "Key pressed: %s (code: %s, value: %s)",
-                            self.code_name,
-                            kcode,
-                            kvalue,
-                        )
+            fd = os.open(self.device_path, os.O_RDONLY | os.O_NONBLOCK)
+            pending = b""
+            while stop_event is None or not stop_event.is_set():
+                readable, _, _ = select.select([fd], [], [], 0.05 if stop_event is not None else None)
+                if stop_event is not None and stop_event.is_set():
+                    return
+                if not readable:
+                    continue
+                try:
+                    data = os.read(fd, 24 - len(pending))
+                except BlockingIOError:
+                    continue
+                if not data:
+                    break
+                pending += data
+                if len(pending) < 24:
+                    continue
+                tv_sec, tv_usec, etype, kcode, kvalue = struct.unpack("llHHI", pending)
+                pending = b""
+                if kvalue != 0:
+                    if stop_event is not None and stop_event.is_set():
                         return
+                    self.code_name = self.cfg.keymap.get(kcode, str(kcode))
+                    self.value = 1 if kvalue == 1 else -1
+                    LOGGER.debug("Key pressed: %s (code: %s, value: %s)",
+                                 self.code_name, kcode, self.value)
+                    return
         except Exception as e:
             LOGGER.error("Error reading input: %s", e)
             self.code_name = ""
             self.value = 0
+        finally:
+            if fd is not None:
+                os.close(fd)
 
     def is_key(self, name: str, key_value: int = 99) -> bool:
         if self.code_name == name:
@@ -870,8 +884,11 @@ class Updater:
                     if os.path.exists(metadata_tmp):
                         os.remove(metadata_tmp)
             self._stop_all_threads()
-            self._shutdown_flag = False
-            thread = threading.Thread(target=self._input_poll_worker, name="input_poll")
+            if any(thread.is_alive() for thread in self._active_threads):
+                raise RuntimeError("Previous input worker has not stopped")
+            stop_event = threading.Event()
+            thread = threading.Thread(target=self._input_poll_worker, args=(stop_event,), name="input_poll")
+            thread.stop_event = stop_event
             thread.daemon = True
             self._active_threads.append(thread)
             thread.start()
@@ -1005,31 +1022,29 @@ class Updater:
             if not keep_input:
                 self._stop_all_threads()
 
-    def _input_poll_worker(self):
-        """专门的输入监听工作线程"""
-        while not self._shutdown_flag:
+    def _input_poll_worker(self, stop_event):
+        """Poll with a stop token owned by this worker, never reused by another."""
+        while not stop_event.is_set():
             try:
-                self.input.poll()
-                time.sleep(0.01)  # 小延迟避免过度占用CPU
+                self.input.poll(stop_event)
+                stop_event.wait(0.01)
             except Exception as e:
-                if not self._shutdown_flag:
+                if not stop_event.is_set():
                     LOGGER.error("Error in input poll worker: %s", e)
                 break
 
     def _stop_all_threads(self):
-        """停止所有活动线程"""
-        self._shutdown_flag = True
-        time.sleep(0.1)  # 给线程时间响应
-
+        for thread in self._active_threads:
+            thread.stop_event.set()
         for thread in self._active_threads[:]:
             if thread.is_alive():
                 thread.join(timeout=0.5)
-                if thread.is_alive():
-                    LOGGER.warning(f"Thread {thread.name} failed to terminate gracefully")
-            self._active_threads.remove(thread)
-
-        # 重置输入状态
-        self.input.reset()
+            if thread.is_alive():
+                LOGGER.warning("Thread %s failed to terminate gracefully", thread.name)
+            else:
+                self._active_threads.remove(thread)
+        if not self._active_threads:
+            self.input.reset()
 
     @staticmethod
     def is_connected() -> bool:

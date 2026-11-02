@@ -4,6 +4,7 @@ import re
 import hashlib
 import shutil
 import socket
+import select
 import subprocess
 import threading
 import time
@@ -17,6 +18,7 @@ from typing import Dict, Optional, Tuple
 import ctypes
 import json
 import zipfile
+from update_package import validate_update_package
 import struct
 from dataclasses import dataclass
 
@@ -25,6 +27,7 @@ from dataclasses import dataclass
 # =========================
 from PIL import Image, ImageDraw, ImageFont
 
+APP_UPDATE_PROTOCOL = 2
 cur_app_ver = "1.1.5"
 
 def ensure_requests():
@@ -295,10 +298,14 @@ class InputHandler:
             return fallback
         raise RuntimeError("No ANBERNIC input device found")
 
-    def poll(self) -> None:
+    def poll(self, stop_event=None) -> None:
+        if stop_event is not None and stop_event.is_set():
+            return
         if os.name == "nt":
             event = sdl2.SDL_Event()
             while sdl2.SDL_PollEvent(ctypes.byref(event)):
+                if stop_event is not None and stop_event.is_set():
+                    return
                 if event.type == sdl2.SDL_KEYDOWN:
                     sym = event.key.keysym.sym
                     if sym in self.key_map:
@@ -313,33 +320,42 @@ class InputHandler:
             self.code_name = ""
             self.value = 0
         else:
+            fd = None
             try:
-                with open(self.device_path, "rb") as f:
-                    while True:
-                        event = f.read(24)
-                        if not event:
-                            break
-                        (tv_sec, tv_usec, etype, kcode, kvalue) = struct.unpack(
-                            "llHHI", event
-                        )
-                        if kvalue != 0:
-                            if kvalue != 1:
-                                kvalue = -1
-                            else:
-                                kvalue = 1
-                            self.code_name = self.cfg.keymap.get(kcode, str(kcode))
-                            self.value = kvalue
-                            LOGGER.debug(
-                                "Key pressed: %s (code: %s, value: %s)",
-                                self.code_name,
-                                kcode,
-                                kvalue,
-                            )
+                fd = os.open(self.device_path, os.O_RDONLY | os.O_NONBLOCK)
+                pending = b""
+                while stop_event is None or not stop_event.is_set():
+                    readable, _, _ = select.select([fd], [], [], 0.05 if stop_event is not None else None)
+                    if stop_event is not None and stop_event.is_set():
+                        return
+                    if not readable:
+                        continue
+                    try:
+                        data = os.read(fd, 24 - len(pending))
+                    except BlockingIOError:
+                        continue
+                    if not data:
+                        break
+                    pending += data
+                    if len(pending) < 24:
+                        continue
+                    tv_sec, tv_usec, etype, kcode, kvalue = struct.unpack("llHHI", pending)
+                    pending = b""
+                    if kvalue != 0:
+                        if stop_event is not None and stop_event.is_set():
                             return
+                        self.code_name = self.cfg.keymap.get(kcode, str(kcode))
+                        self.value = 1 if kvalue == 1 else -1
+                        LOGGER.debug("Key pressed: %s (code: %s, value: %s)",
+                                     self.code_name, kcode, self.value)
+                        return
             except Exception as e:
                 LOGGER.error("Error reading input: %s", e)
                 self.code_name = ""
                 self.value = 0
+            finally:
+                if fd is not None:
+                    os.close(fd)
 
     def is_key(self, name: str, key_value: int = 99) -> bool:
         if self.code_name == name:
@@ -1343,12 +1359,12 @@ class LauncherApp:
         LOGGER.info("Starting upgrade app process")
         self.draw_message_center(t.t("Downloading"), t.t("Fetching verification data..."), "㊙", "info")
 
-        # Old wrappers must never mistake an unfinished download for an update.
-        for path in (self.cfg.tmp_app_md5, self.cfg.tmp_app_ready):
-            if os.path.exists(path):
-                os.remove(path)
         # Keep cancellation polling alive until verification/publication finishes.
         try:
+            # Failed cleanup must not publish or download another package.
+            for path in (self.cfg.tmp_app_md5, self.cfg.tmp_app_ready):
+                if os.path.exists(path):
+                    os.remove(path)
             download_result = self._download_file(update_url, self.cfg.tmp_app_update, progress_hook, '(1/1)', keep_input=True, expected_md5=update_md5)
 
             if download_result == "cancelled" or self.input.slide_key():
@@ -1359,6 +1375,7 @@ class LauncherApp:
 
             if not download_result:
                 LOGGER.error(f"Error downloading update file: {update_url}")
+                self._stop_all_threads()
                 self.draw_message_center(t.t("Download Error"), t.t("Failed to download update file."), "✘", "error")
                 self.exit_cleanup(2, self.ui, self.cfg)
                 return
@@ -1383,6 +1400,18 @@ class LauncherApp:
             if down_md5 and update_md5 and down_md5.upper() == update_md5.upper():
                 if self.input.slide_key():
                     LOGGER.info("App update cancelled before publishing verified package")
+                    return
+                try:
+                    validate_update_package(self.cfg.tmp_app_update)
+                except ValueError as e:
+                    LOGGER.error("Incompatible application package: %s", e)
+                    for path in (self.cfg.tmp_app_update, self.cfg.tmp_app_update + '.download.json'):
+                        if os.path.exists(path):
+                            os.remove(path)
+                    self._stop_all_threads()
+                    self.draw_message_center(
+                        t.t("Update package is incompatible."),
+                        t.t("A complete updater release supporting protocol 2 is required."), "✘", "error")
                     return
                 try:
                     os.replace(self.cfg.tmp_app_update, self.cfg.tmp_app_ready)
@@ -1416,10 +1445,17 @@ class LauncherApp:
                     if os.path.exists(path):
                         os.remove(path)
                 LOGGER.error("MD5 verification failed. Expected: %s, Got: %s", update_md5, down_md5)
+                self._stop_all_threads()
                 self.draw_message_center(t.t("Verification Failed"), t.t("File integrity check failed."), "✘", "error")
                 self.exit_cleanup(3, self.ui, self.cfg)
+        except OSError as e:
+            LOGGER.error("Unable to prepare application update: %s", e)
+            self._stop_all_threads()
+            self.draw_message_center(t.t("Download Error"), t.t("Failed to download update file."), "✘", "error")
+            return
         finally:
             self._stop_all_threads()
+
 
     def _download_file(self, url, local_path, progress_hook=None, num_file=None, keep_input=False, expected_md5=None):
         # Validate every response, including retries: a server may ignore Range.
@@ -1454,8 +1490,11 @@ class LauncherApp:
                     if os.path.exists(metadata_tmp):
                         os.remove(metadata_tmp)
             self._stop_all_threads()
-            self._shutdown_flag = False
-            thread = threading.Thread(target=self._input_poll_worker, name="input_poll")
+            if any(thread.is_alive() for thread in self._active_threads):
+                raise RuntimeError("Previous input worker has not stopped")
+            stop_event = threading.Event()
+            thread = threading.Thread(target=self._input_poll_worker, args=(stop_event,), name="input_poll")
+            thread.stop_event = stop_event
             thread.daemon = True
             self._active_threads.append(thread)
             thread.start()
@@ -1589,14 +1628,14 @@ class LauncherApp:
             if not keep_input:
                 self._stop_all_threads()
 
-    def _input_poll_worker(self):
-        """专门的输入监听工作线程"""
-        while not self._shutdown_flag:
+    def _input_poll_worker(self, stop_event):
+        """Poll with a stop token owned by this worker, never reused by another."""
+        while not stop_event.is_set():
             try:
-                self.input.poll()
-                time.sleep(0.01)  # 小延迟避免过度占用CPU
+                self.input.poll(stop_event)
+                stop_event.wait(0.01)
             except Exception as e:
-                if not self._shutdown_flag:
+                if not stop_event.is_set():
                     LOGGER.error("Error in input poll worker: %s", e)
                 break
 
@@ -1818,18 +1857,17 @@ class LauncherApp:
         time.sleep(0.5)
 
     def _stop_all_threads(self):
-        """停止所有活动线程"""
-        self._shutdown_flag = True
-        time.sleep(0.1)
-
+        for thread in self._active_threads:
+            thread.stop_event.set()
         for thread in self._active_threads[:]:
             if thread.is_alive():
                 thread.join(timeout=0.5)
-                if thread.is_alive():
-                    LOGGER.warning(f"Thread {thread.name} failed to terminate gracefully")
-            self._active_threads.remove(thread)
-
-        self.input.reset()
+            if thread.is_alive():
+                LOGGER.warning("Thread %s failed to terminate gracefully", thread.name)
+            else:
+                self._active_threads.remove(thread)
+        if not self._active_threads:
+            self.input.reset()
 
     @staticmethod
     def exit_not_cleanup(code: int) -> None:
