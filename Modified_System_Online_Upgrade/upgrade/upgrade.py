@@ -810,6 +810,22 @@ class UIRenderer:
 # =========================
 # Updater (network + verify + unzip) - UI enhancements only
 # =========================
+def select_append_target(archive_path):
+    """Choose a writable mounted card with room for the uncompressed update."""
+    with zipfile.ZipFile(archive_path, "r") as archive:
+        required = sum(entry.file_size for entry in archive.infolist())
+    candidates = []
+    for path in ("/mnt/mmc", "/mnt/sdcard"):
+        try:
+            if os.path.ismount(path) and os.access(path, os.W_OK):
+                free = shutil.disk_usage(path).free
+                if free >= required:
+                    candidates.append((free, path))
+        except OSError as exc:
+            LOGGER.warning("Cannot inspect update target %s: %s", path, exc)
+    return max(candidates)[1] if candidates else None
+
+
 class Updater:
     def __init__(self, cfg: Config, ui: UIRenderer, translator: Translator):
         self.cfg = Config()
@@ -1731,13 +1747,17 @@ class Updater:
 
         if down_md5 and md5 and down_md5.upper() == md5.upper():
             LOGGER.info("MD5 verification successful")
-            tmp_space = shutil.disk_usage("/tmp")
-            mmc_space = shutil.disk_usage("/mnt/mmc")
-            sdcard_space = shutil.disk_usage("/mnt/sdcard")
-            if tmp_space == sdcard_space:
-                target_path = "/mnt/mmc"
-            else:
-                target_path = "/mnt/mmc" if mmc_space > sdcard_space else "/mnt/sdcard"
+            try:
+                target_path = select_append_target(self.cfg.tmp_update)
+            except (OSError, zipfile.BadZipFile) as exc:
+                LOGGER.error("Cannot inspect update archive: %s", exc)
+                self.draw_message_center(t.t("Extraction Error"), t.t("Failed to extract update files."), "✘", "error")
+                MainApp.exit_cleanup(4, self.ui, self.cfg)
+                return
+            if target_path is None:
+                LOGGER.error("No mounted writable card has enough space for the update")
+                self.draw_message_center(t.t("Insufficient TF card space"), "", "✘", "error")
+                return
             LOGGER.info("Starting append update from path %s", target_path)
 
             if self.unpack_zip(self.cfg.tmp_update, target_path) == 0:
