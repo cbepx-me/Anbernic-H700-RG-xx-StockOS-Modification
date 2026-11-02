@@ -837,6 +837,7 @@ class Updater:
         self.session = requests.Session()
         self.session.headers.update(self.cfg.headers)
         self._active_threads = []
+        self._restart_required = False
         self._shutdown_flag = False
 
         retry = Retry(
@@ -1225,17 +1226,19 @@ class Updater:
 
         max_panel_width = min(ui.x_size - 100, 650)
         padding = 30
+        # Icon text starts 125px from the panel edge; preserve right padding too.
+        text_width = max_panel_width - padding - (125 if icon else padding)
 
         title_font_size = 24
         subtitle_font_size = 20
 
-        title_lines = self._wrap_text(ui, title, title_font_size, max_panel_width - 2 * padding - (60 if icon else 0))
+        title_lines = self._wrap_text(ui, title, title_font_size, text_width)
         title_height = len(title_lines) * 35
 
         subtitle_height = 0
         if subtitle:
             subtitle_lines = self._wrap_text(ui, subtitle, subtitle_font_size,
-                                             max_panel_width - 2 * padding - (60 if icon else 0))
+                                             text_width)
             subtitle_height = len(subtitle_lines) * 28
 
         panel_height = 60 + title_height + subtitle_height + 30
@@ -1275,7 +1278,7 @@ class Updater:
         if subtitle:
             subtitle_start_y = text_start_y + title_height + 15
             subtitle_lines = self._wrap_text(ui, subtitle, subtitle_font_size,
-                                             max_panel_width - 2 * padding - (60 if icon else 0))
+                                             text_width)
 
             if icon:
                 subtitle_x = text_x
@@ -1599,6 +1602,14 @@ class Updater:
                     )
 
     def start_update(self, update_file_list: list, install_active: bool=False) -> bool:
+        def require_manual_restart():
+            self.draw_message_center(self.t.t("Restart required"),
+                                     self.t.t("The update is installed. Please restart the device manually."),
+                                     icon="✘", status="error")
+            return False
+
+        if getattr(self, "_restart_required", False):
+            return require_manual_restart()
         if not update_file_list:
             LOGGER.error("Refusing an empty system update file list")
             self.draw_message_center(self.t.t("Update Failed"), self.t.t("Failed to update"),
@@ -1757,10 +1768,16 @@ class Updater:
                     LOGGER.error("Missing update package: %s", source_file)
                     return False
 
+            self._restart_required = True
             self.draw_message_center(t.t("System Update"), t.t("Ready, start upgrading..."), "✔", "success")
             time.sleep(3)
-            shutil.rmtree(self.cfg.target_path)
-            MainApp.reboot(self.ui, self.cfg)
+            try:
+                shutil.rmtree(self.cfg.target_path)
+            except OSError as e:
+                LOGGER.error("Post-install cleanup failed: %s", e)
+                return require_manual_restart()
+            if MainApp.reboot(self.ui, self.cfg) is False:
+                return require_manual_restart()
         return True
 
     def start_append(self, update_url, md5) -> None:
@@ -1944,7 +1961,7 @@ class MainApp:
             sys.exit(code)
 
     @staticmethod
-    def reboot(ui: UIRenderer, cfg: Config, auto=False) -> None:
+    def reboot(ui: UIRenderer, cfg: Config, auto=False) -> bool:
         LOGGER.info("Rebooting system")
         try:
             for p in (cfg.tmp_info, cfg.tmp_update, cfg.tmp_update + '.download.json', "/mnt/mod/update.dep"):
@@ -1984,13 +2001,19 @@ exit 0
                 # Distinguish prepared installation from an ordinary return to the menu.
                 sys.exit(37)
 
-            ui.draw_end()
             os.sync()
-            os.system("reboot")
+            reboot_status = os.system("reboot")
+            if reboot_status != 0:
+                LOGGER.error("Reboot command was not accepted (status %s)", reboot_status)
+                return False
+            ui.draw_end()
             sys.exit(0)
         except Exception as e:
             LOGGER.error("Error during reboot: %s", e)
+            if not auto:
+                return False
             MainApp.exit_cleanup(1, ui, cfg)
+            return False
 
     def run(self) -> None:
         self.ui.draw_loading_screen(
@@ -2071,6 +2094,8 @@ exit 0
 
         while True:
             try:
+                if getattr(self.updater, "_restart_required", False):
+                    update_active = append_active = False
                 self.updater.draw_home(self.board_info, cur_ver, new_ver, os_cur_ver,
                                        update_enabled=update_active, append_enabled=append_active)
 
@@ -2084,7 +2109,12 @@ exit 0
                     MainApp.exit_cleanup(0, self.ui, self.cfg)
 
                 elif self.input.is_key("A"):
-                    if append_active and not update_active:
+                    if getattr(self.updater, "_restart_required", False):
+                        self.updater.draw_message_center(
+                            self.t.t("Restart required"),
+                            self.t.t("The update is installed. Please restart the device manually."),
+                            icon="✘", status="error")
+                    elif append_active and not update_active:
                         self.updater.start_append(data_update_url, data_md5)
                     elif not append_active and update_active:
                         self.updater.start_update(update_file_list, install_active=True)

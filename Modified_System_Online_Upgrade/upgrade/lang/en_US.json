@@ -40,6 +40,8 @@
     "Fetching software catalog from repositories...": "Fetching software catalog from repositories...",
     "Fetching verification data...": "Fetching verification data...",
     "File integrity check failed.": "File integrity check failed.",
+    "Restart required": "Restart required",
+    "The update is installed. Please restart the device manually.": "The update is installed. Please restart the device manually.",
     "Update package is incompatible.": "Update package is incompatible.",
     "A complete updater release supporting protocol 2 is required.": "A complete updater release supporting protocol 2 is required.",
     "File": "File",
