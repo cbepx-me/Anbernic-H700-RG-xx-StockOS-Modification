@@ -811,6 +811,7 @@ class UIRenderer:
             else:
                 if current_line:
                     lines.append(' '.join(current_line))
+                    current_line = []
                 if ui.active_draw.textbbox((0, 0), word, font=font)[2] > max_width:
                     chars = list(word)
                     split_word = []
@@ -1808,9 +1809,13 @@ class LauncherApp:
             if self.input.is_key("B"):
                 break
             elif os.path.exists(LOG_FILE) and self.input.is_key("Y"):
-                with open(LOG_FILE, "r") as log_file:
-                    log_content = log_file.read()
-                    self.ui.show_info(log_content)
+                try:
+                    with open(LOG_FILE, "r", encoding="utf-8", errors="replace") as log_file:
+                        log_content = log_file.read()
+                except OSError as e:
+                    LOGGER.warning("Unable to read error log: %s", e)
+                    continue
+                self.ui.show_info(log_content)
                 break
 
     def _calculate_speed(self, downloaded: int) -> float | int | str:

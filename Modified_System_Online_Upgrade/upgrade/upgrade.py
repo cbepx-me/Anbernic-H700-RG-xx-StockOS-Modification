@@ -1326,9 +1326,13 @@ class Updater:
             if self.input.is_key("B"):
                 break
             elif os.path.exists(LOG_FILE) and self.input.is_key("Y"):
-                with open(LOG_FILE, "r") as log_file:
-                    log_content = log_file.read()
-                    self.show_info(log_content)
+                try:
+                    with open(LOG_FILE, "r", encoding="utf-8", errors="replace") as log_file:
+                        log_content = log_file.read()
+                except OSError as e:
+                    LOGGER.warning("Unable to read error log: %s", e)
+                    continue
+                self.show_info(log_content)
                 break
 
     def _wrap_text(self, ui: UIRenderer, text: str, font_size: int, max_width: int) -> list:
@@ -1354,6 +1358,7 @@ class Updater:
             else:
                 if current_line:
                     lines.append(' '.join(current_line))
+                    current_line = []
                 if ui.active_draw.textbbox((0, 0), word, font=font)[2] > max_width:
                     chars = list(word)
                     split_word = []
@@ -1705,7 +1710,7 @@ class Updater:
                         has_install = os.path.isfile(install_script)
                         if has_install:
                             LOGGER.info(f"Executing install.sh for {item['filename']}")
-                            self.draw_message_center(f'{self.t.t("Installing")}: {item["filename"]}', "✪", "info")
+                            self.draw_message_center(f'{self.t.t("Installing")}: {item["filename"]}', icon="✪", status="info")
                             try:
                                 st = os.stat(os.path.join(install_tmp_path, "install.sh"))
                                 os.chmod(os.path.join(install_tmp_path, "install.sh"), st.st_mode | 0o111)
@@ -1721,16 +1726,16 @@ class Updater:
                                     LOGGER.error(f"stdout: {result.stdout}")
                                     LOGGER.error(f"stderr: {result.stderr}")
                                     self.draw_message_center(f'{self.t.t("Installation Failed")}: {item["filename"]}',
-                                                             "✘", "error")
+                                                             icon="✘", status="error")
                                     shutil.rmtree(install_tmp_path, ignore_errors=True)
                                     return False
                                 LOGGER.info(f"install.sh executed successfully")
-                                self.draw_message_center(f'{self.t.t("Installation Complete")}: {item["filename"]}', "✔",
-                                                         "success")
+                                self.draw_message_center(f'{self.t.t("Installation Complete")}: {item["filename"]}', icon="✔",
+                                                         status="success")
                             except Exception as e:
                                 LOGGER.error(f"Error executing install.sh: {e}")
-                                self.draw_message_center(f'{self.t.t("Installation Failed")}: {item["filename"]}', "✘",
-                                                         "error")
+                                self.draw_message_center(f'{self.t.t("Installation Failed")}: {item["filename"]}', icon="✘",
+                                                         status="error")
                                 shutil.rmtree(install_tmp_path, ignore_errors=True)
                                 return False
                         else:

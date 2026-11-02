@@ -121,5 +121,7 @@
     "Launcher": "Launcher",
     "Choose an option": "Choose an option",
     "System Updater": "System Updater",
-    "Select": "Select"
+    "Select": "Select",
+    "Update package is incompatible.": "Update package is incompatible.",
+    "A complete updater release supporting protocol 2 is required.": "A complete updater release supporting protocol 2 is required."
 }

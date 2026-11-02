@@ -127,5 +127,7 @@
     "Update Failed": "Ошибка обновления",
     "Failed to update": "Не удалось обновить",
     "Insufficient TF card space": "Недостаточно места на карте памяти",
-    "Please reserve 1GB of free space on TF1 or TF2": "Освободите не менее 1 ГБ на TF1 или TF2"
+    "Please reserve 1GB of free space on TF1 or TF2": "Освободите не менее 1 ГБ на TF1 или TF2",
+    "Update package is incompatible.": "Пакет обновления несовместим.",
+    "A complete updater release supporting protocol 2 is required.": "Требуется полный выпуск программы обновления с поддержкой протокола 2."
 }
