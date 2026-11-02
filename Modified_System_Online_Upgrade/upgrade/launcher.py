@@ -123,7 +123,9 @@ class Config:
 
     tmp_path: str = APP_PATH + "/tmp" if os.name == "nt" else "/tmp"
     tmp_info: str = os.path.join(tmp_path, "info.json")
-    tmp_app_update: str =  os.path.join(tmp_path, "app.tar.gz")
+    tmp_app_update: str =  os.path.join(tmp_path, "app.tar.gz.part")
+    tmp_app_ready: str = os.path.join(tmp_path, "anbernic-app-ready.tar.gz")
+    tmp_app_md5: str = os.path.join(tmp_path, "anbernic-app-ready.md5")
 
     bytes_per_pixel: int = 4
     keymap: Dict[int, str] = None
@@ -1341,50 +1343,79 @@ class LauncherApp:
         LOGGER.info("Starting upgrade app process")
         self.draw_message_center(t.t("Downloading"), t.t("Fetching verification data..."), "㊙", "info")
 
-        download_result = self._download_file(update_url, self.cfg.tmp_app_update, progress_hook, '(1/1)')
+        # Old wrappers must never mistake an unfinished download for an update.
+        for path in (self.cfg.tmp_app_md5, self.cfg.tmp_app_ready):
+            if os.path.exists(path):
+                os.remove(path)
+        # Keep cancellation polling alive until verification/publication finishes.
+        try:
+            download_result = self._download_file(update_url, self.cfg.tmp_app_update, progress_hook, '(1/1)', keep_input=True)
 
-        if download_result == "cancelled":
-            LOGGER.info("App update cancelled by user")
-            self.draw_message_center(t.t("Download Cancelled"), t.t("Returning to main menu..."), "☹", "info")
-            time.sleep(2)
-            return
+            if download_result == "cancelled" or self.input.slide_key():
+                LOGGER.info("App update cancelled by user")
+                self.draw_message_center(t.t("Download Cancelled"), t.t("Returning to main menu..."), "☹", "info")
+                time.sleep(2)
+                return
 
-        if not download_result:
-            LOGGER.error(f"Error downloading update file: {update_url}")
-            self.draw_message_center(t.t("Download Error"), t.t("Failed to download update file."), "✘", "error")
-            self.exit_cleanup(2, self.ui, self.cfg)
+            if not download_result:
+                LOGGER.error(f"Error downloading update file: {update_url}")
+                self.draw_message_center(t.t("Download Error"), t.t("Failed to download update file."), "✘", "error")
+                self.exit_cleanup(2, self.ui, self.cfg)
+                return
 
-        LOGGER.info(f"Verifying downloaded files: {self.cfg.tmp_app_update}")
-        self.draw_message_center(t.t("Verifying"), t.t("Checking file integrity..."), "✪", "info")
+            LOGGER.info(f"Verifying downloaded files: {self.cfg.tmp_app_update}")
+            self.draw_message_center(t.t("Verifying"), t.t("Checking file integrity..."), "✪", "info")
 
-        down_md5 = ""
+            down_md5 = ""
 
-        if os.path.exists(self.cfg.tmp_app_update):
-            try:
-                md5_hash = hashlib.md5()
-                with open(self.cfg.tmp_app_update, "rb") as f:
-                    for chunk in iter(lambda: f.read(4096), b""):
-                        md5_hash.update(chunk)
-                down_md5 = md5_hash.hexdigest().lower()
-                LOGGER.info("Calculated MD5 of update file: %s", down_md5)
-            except Exception as e:
-                LOGGER.error("Error calculating MD5: %s", e)
-                down_md5 = ""
+            if os.path.exists(self.cfg.tmp_app_update):
+                try:
+                    md5_hash = hashlib.md5()
+                    with open(self.cfg.tmp_app_update, "rb") as f:
+                        for chunk in iter(lambda: f.read(4096), b""):
+                            md5_hash.update(chunk)
+                    down_md5 = md5_hash.hexdigest().lower()
+                    LOGGER.info("Calculated MD5 of update file: %s", down_md5)
+                except Exception as e:
+                    LOGGER.error("Error calculating MD5: %s", e)
+                    down_md5 = ""
 
-        if down_md5 and update_md5 and down_md5.upper() == update_md5.upper():
-            LOGGER.info("MD5 verification successful")
-            LOGGER.info("Application restart")
-            self.draw_message_center(t.t("Prompt message"), t.t("Updating, restart later..."), "㊙", "info")
-            time.sleep(2)
-            LOGGER.info("Restarting application for update...")
-            self._cleanup_before_restart()
-            self.exit_not_cleanup(36)
-        else:
-            LOGGER.error("MD5 verification failed. Expected: %s, Got: %s", update_md5, down_md5)
-            self.draw_message_center(t.t("Verification Failed"), t.t("File integrity check failed."), "✘", "error")
-            self.exit_cleanup(3, self.ui, self.cfg)
+            if down_md5 and update_md5 and down_md5.upper() == update_md5.upper():
+                if self.input.slide_key():
+                    LOGGER.info("App update cancelled before publishing verified package")
+                    return
+                try:
+                    os.replace(self.cfg.tmp_app_update, self.cfg.tmp_app_ready)
+                    # Publish the readiness marker last; the wrapper rechecks the bytes.
+                    marker_tmp = self.cfg.tmp_app_md5 + ".tmp"
+                    with open(marker_tmp, "w") as marker:
+                        marker.write(down_md5 + "\n")
+                    if self.input.slide_key():
+                        os.remove(marker_tmp)
+                        return
+                    os.replace(marker_tmp, self.cfg.tmp_app_md5)
+                except OSError as e:
+                    LOGGER.error("Unable to publish verified update: %s", e)
+                    for path in (self.cfg.tmp_app_md5, self.cfg.tmp_app_md5 + ".tmp"):
+                        if os.path.exists(path):
+                            os.remove(path)
+                    self.exit_cleanup(3, self.ui, self.cfg)
+                    return
+                LOGGER.info("MD5 verification successful")
+                LOGGER.info("Application restart")
+                self.draw_message_center(t.t("Prompt message"), t.t("Updating, restart later..."), "㊙", "info")
+                time.sleep(2)
+                LOGGER.info("Restarting application for update...")
+                self._cleanup_before_restart()
+                self.exit_not_cleanup(36)
+            else:
+                LOGGER.error("MD5 verification failed. Expected: %s, Got: %s", update_md5, down_md5)
+                self.draw_message_center(t.t("Verification Failed"), t.t("File integrity check failed."), "✘", "error")
+                self.exit_cleanup(3, self.ui, self.cfg)
+        finally:
+            self._stop_all_threads()
 
-    def _download_file(self, url, local_path, progress_hook=None, num_file=None):
+    def _download_file(self, url, local_path, progress_hook=None, num_file=None, keep_input=False):
         # Validate every response, including retries: a server may ignore Range.
         block_size = 512 * 1024
         max_retries = 3
@@ -1526,7 +1557,8 @@ class LauncherApp:
             LOGGER.error("Unexpected error downloading file: %s - %s", url, e)
             return False
         finally:
-            self._stop_all_threads()
+            if not keep_input:
+                self._stop_all_threads()
 
     def _input_poll_worker(self):
         """专门的输入监听工作线程"""

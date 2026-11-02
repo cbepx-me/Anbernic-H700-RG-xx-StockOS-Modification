@@ -837,7 +837,7 @@ class Updater:
         self.session.mount('https://', adapter)
         self.session.headers.update(self.cfg.headers)
 
-    def _download_file(self, url, local_path, progress_hook=None, num_file=None):
+    def _download_file(self, url, local_path, progress_hook=None, num_file=None, keep_input=False):
         # Validate every response, including retries: a server may ignore Range.
         block_size = 512 * 1024
         max_retries = 3
@@ -979,7 +979,8 @@ class Updater:
             LOGGER.error("Unexpected error downloading file: %s - %s", url, e)
             return False
         finally:
-            self._stop_all_threads()
+            if not keep_input:
+                self._stop_all_threads()
 
     def _input_poll_worker(self):
         """专门的输入监听工作线程"""
@@ -1554,7 +1555,7 @@ class Updater:
                         lines, text_x, panel_height, text_width, font, current_page
                     )
 
-    def start_update(self, update_file_list: list, install_active: bool=False) -> None:
+    def start_update(self, update_file_list: list, install_active: bool=False) -> bool:
         ui = self.ui
         t = self.t
 
@@ -1598,8 +1599,9 @@ class Updater:
         if max(tmp_space, mmc_space, sdcard_space) < total_size:
             LOGGER.info("There is not enough free space on %s", self.cfg.target_path)
             self.draw_message_center(t.t("Insufficient TF card space"), t.t("Please reserve 1GB of free space on TF1 or TF2"), "✘", "error")
-            shutil.rmtree(self.cfg.target_path)
+            shutil.rmtree(self.cfg.target_path, ignore_errors=True)
             MainApp.exit_cleanup(2, self.ui, self.cfg)
+            return False
 
         if not os.path.exists(self.cfg.target_path):
             os.makedirs(self.cfg.target_path, exist_ok=True)
@@ -1615,13 +1617,14 @@ class Updater:
                 LOGGER.info("System update cancelled by user")
                 self.draw_message_center(t.t("Download Cancelled"), t.t("Returning to main menu..."), "☹", "info")
                 time.sleep(2)
-                return
+                return False
 
             if not download_result:
                 LOGGER.error(f"Error downloading update file: {down_url}")
                 self.draw_message_center(t.t("Download Error"), t.t("Failed to download update file."), "✘", "error")
                 shutil.rmtree(self.cfg.target_path)
                 MainApp.exit_cleanup(2, self.ui, self.cfg)
+                return False
             file_num += 1
 
         LOGGER.info(f"Verifying downloaded files: {self.cfg.target_path}")
@@ -1649,6 +1652,7 @@ class Updater:
                 self.draw_message_center(t.t("Verification Failed"), t.t("File integrity check failed."), "✘", "error")
                 shutil.rmtree(self.cfg.target_path)
                 MainApp.exit_cleanup(3, self.ui, self.cfg)
+                return False
 
         if install_active:
             install_tmp_path = os.path.join(self.cfg.target_path, "tmp")
@@ -1681,6 +1685,7 @@ class Updater:
                                     self.draw_message_center(f'{self.t.t("Installation Failed")}: {item["filename"]}',
                                                              "✘", "error")
                                     shutil.rmtree(install_tmp_path, ignore_errors=True)
+                                    return False
                                 LOGGER.info(f"install.sh executed successfully")
                                 self.draw_message_center(f'{self.t.t("Installation Complete")}: {item["filename"]}', "✔",
                                                          "success")
@@ -1689,18 +1694,26 @@ class Updater:
                                 self.draw_message_center(f'{self.t.t("Installation Failed")}: {item["filename"]}', "✘",
                                                          "error")
                                 shutil.rmtree(install_tmp_path, ignore_errors=True)
+                                return False
+                        else:
+                            LOGGER.error("Missing install.sh in %s", source_file)
+                            return False
                     else:
                         LOGGER.error(f"Error unpacking update file: {item['filename']}")
                         self.draw_message_center(t.t("Extraction Error"), t.t("Failed to extract update files."), "✘",
                                                  "error")
                         shutil.rmtree(self.cfg.target_path)
                         MainApp.exit_cleanup(4, self.ui, self.cfg)
-
+                        return False
+                else:
+                    LOGGER.error("Missing update package: %s", source_file)
+                    return False
 
             self.draw_message_center(t.t("System Update"), t.t("Ready, start upgrading..."), "✔", "success")
             time.sleep(3)
             shutil.rmtree(self.cfg.target_path)
             MainApp.reboot(self.ui, self.cfg)
+        return True
 
     def start_append(self, update_url, md5) -> None:
         ui = self.ui
@@ -2010,8 +2023,8 @@ exit 0
                     elif not append_active and update_active:
                         self.updater.start_update(update_file_list, install_active=True)
                     else:
-                        self.updater.start_update(update_file_list, install_active=False)
-                        self.updater.start_append(data_update_url, data_md5)
+                        if self.updater.start_update(update_file_list, install_active=False) is True:
+                            self.updater.start_append(data_update_url, data_md5)
 
                 elif self.input.is_key("Y"):
                     self.updater.show_info(update_info)
