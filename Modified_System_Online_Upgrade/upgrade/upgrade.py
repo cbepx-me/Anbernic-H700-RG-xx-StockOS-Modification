@@ -837,7 +837,7 @@ class Updater:
         self.session.mount('https://', adapter)
         self.session.headers.update(self.cfg.headers)
 
-    def _download_file(self, url, local_path, progress_hook=None, num_file=None, keep_input=False):
+    def _download_file(self, url, local_path, progress_hook=None, num_file=None, keep_input=False, expected_md5=None):
         # Validate every response, including retries: a server may ignore Range.
         block_size = 512 * 1024
         max_retries = 3
@@ -846,6 +846,29 @@ class Updater:
         strong_etag = None
         known_total = None
         try:
+            if not isinstance(expected_md5, str) or not re.fullmatch(r'[0-9a-fA-F]{32}', expected_md5):
+                raise ValueError("Missing or invalid expected download MD5")
+            identity = {'url': url, 'md5': expected_md5.lower()}
+            identity_path = local_path + '.download.json'
+            saved_identity = None
+            try:
+                with open(identity_path, 'r') as metadata:
+                    saved_identity = json.load(metadata)
+            except (OSError, ValueError):
+                pass
+            if saved_identity != identity:
+                # Unbound or changed resources must never inherit another download's bytes.
+                for path in (local_path, identity_path):
+                    if os.path.exists(path):
+                        os.remove(path)
+                metadata_tmp = identity_path + '.tmp'
+                try:
+                    with open(metadata_tmp, 'w') as metadata:
+                        json.dump(identity, metadata)
+                    os.replace(metadata_tmp, identity_path)
+                finally:
+                    if os.path.exists(metadata_tmp):
+                        os.remove(metadata_tmp)
             self._stop_all_threads()
             self._shutdown_flag = False
             thread = threading.Thread(target=self._input_poll_worker, name="input_poll")
@@ -1611,7 +1634,7 @@ class Updater:
             down_url = self.cfg.server_url + item['filename']
             target_file = os.path.join(self.cfg.target_path, item['filename'])
             download_result = self._download_file(down_url, target_file, progress_hook,
-                                                  str(f'({file_num}/{len(update_file_list)})'))
+                                                  str(f'({file_num}/{len(update_file_list)})'), expected_md5=item['md5'])
 
             if download_result == "cancelled":
                 LOGGER.info("System update cancelled by user")
@@ -1746,7 +1769,7 @@ class Updater:
         LOGGER.info("Starting OS append update process")
         self.draw_message_center(t.t("Downloading"), t.t("Fetching verification data..."), "㊙", "info")
 
-        download_result = self._download_file(update_url, self.cfg.tmp_update, progress_hook, '(1/1)')
+        download_result = self._download_file(update_url, self.cfg.tmp_update, progress_hook, '(1/1)', expected_md5=md5)
 
         if download_result == "cancelled":
             LOGGER.info("Append update cancelled by user")
@@ -1796,6 +1819,9 @@ class Updater:
                 self.draw_message_center(t.t("Extraction Error"), t.t("Failed to extract update files."), "✘", "error")
                 MainApp.exit_cleanup(4, self.ui, self.cfg)
         else:
+            for path in (self.cfg.tmp_update, self.cfg.tmp_update + '.download.json'):
+                if os.path.exists(path):
+                    os.remove(path)
             LOGGER.error("MD5 verification failed. Expected: %s, Got: %s", md5, down_md5)
             self.draw_message_center(t.t("Verification Failed"), t.t("File integrity check failed."), "✘", "error")
             MainApp.exit_cleanup(3, self.ui, self.cfg)
@@ -1881,7 +1907,7 @@ class MainApp:
     def exit_cleanup(code: int, ui: UIRenderer, cfg: Config) -> None:
         LOGGER.info("Exiting with code %s", code)
         try:
-            for p in (cfg.tmp_info, cfg.tmp_update, cfg.target_path):
+            for p in (cfg.tmp_info, cfg.tmp_update, cfg.tmp_update + '.download.json', cfg.target_path):
                 if os.path.isfile(p):
                     os.remove(p)
                 elif os.path.isdir(p):
@@ -1896,7 +1922,7 @@ class MainApp:
     def reboot(ui: UIRenderer, cfg: Config, auto=False) -> None:
         LOGGER.info("Rebooting system")
         try:
-            for p in (cfg.tmp_info, cfg.tmp_update, "/mnt/mod/update.dep"):
+            for p in (cfg.tmp_info, cfg.tmp_update, cfg.tmp_update + '.download.json', "/mnt/mod/update.dep"):
                 if os.path.exists(p):
                     os.remove(p)
             if auto:

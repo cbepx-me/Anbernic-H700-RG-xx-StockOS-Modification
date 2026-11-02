@@ -17,6 +17,15 @@ export PYSDL2_DLL_PATH="/usr/lib"
 
 while true
 do
+    # Legacy downloads are unverified; orphan handoff files are never installable.
+    rm -f /tmp/app.tar.gz /tmp/app.tar.gz.download.json /tmp/app.tar.gz.download.json.tmp \
+          /tmp/app.tar.gz.part.download.json.tmp "$APP_MD5.tmp"
+    if [ ! -f /tmp/app.tar.gz.part ]; then
+        rm -f /tmp/app.tar.gz.part.download.json
+    fi
+    if [ ! -f "$APP_MD5" ]; then
+        rm -f "$APP_FILE"
+    fi
     if [ -f "$NEW_FILE" ]; then
         chmod +x "$NEW_FILE"
         if bash -n "$NEW_FILE" 2>/dev/null && grep -qx 'APP_UPDATE_PROTOCOL=2' "$NEW_FILE"; then

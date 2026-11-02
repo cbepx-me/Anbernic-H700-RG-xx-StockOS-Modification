@@ -1349,7 +1349,7 @@ class LauncherApp:
                 os.remove(path)
         # Keep cancellation polling alive until verification/publication finishes.
         try:
-            download_result = self._download_file(update_url, self.cfg.tmp_app_update, progress_hook, '(1/1)', keep_input=True)
+            download_result = self._download_file(update_url, self.cfg.tmp_app_update, progress_hook, '(1/1)', keep_input=True, expected_md5=update_md5)
 
             if download_result == "cancelled" or self.input.slide_key():
                 LOGGER.info("App update cancelled by user")
@@ -1386,6 +1386,9 @@ class LauncherApp:
                     return
                 try:
                     os.replace(self.cfg.tmp_app_update, self.cfg.tmp_app_ready)
+                    identity_path = self.cfg.tmp_app_update + '.download.json'
+                    if os.path.exists(identity_path):
+                        os.remove(identity_path)
                     # Publish the readiness marker last; the wrapper rechecks the bytes.
                     marker_tmp = self.cfg.tmp_app_md5 + ".tmp"
                     with open(marker_tmp, "w") as marker:
@@ -1409,13 +1412,16 @@ class LauncherApp:
                 self._cleanup_before_restart()
                 self.exit_not_cleanup(36)
             else:
+                for path in (self.cfg.tmp_app_update, self.cfg.tmp_app_update + '.download.json'):
+                    if os.path.exists(path):
+                        os.remove(path)
                 LOGGER.error("MD5 verification failed. Expected: %s, Got: %s", update_md5, down_md5)
                 self.draw_message_center(t.t("Verification Failed"), t.t("File integrity check failed."), "✘", "error")
                 self.exit_cleanup(3, self.ui, self.cfg)
         finally:
             self._stop_all_threads()
 
-    def _download_file(self, url, local_path, progress_hook=None, num_file=None, keep_input=False):
+    def _download_file(self, url, local_path, progress_hook=None, num_file=None, keep_input=False, expected_md5=None):
         # Validate every response, including retries: a server may ignore Range.
         block_size = 512 * 1024
         max_retries = 3
@@ -1424,6 +1430,29 @@ class LauncherApp:
         strong_etag = None
         known_total = None
         try:
+            if not isinstance(expected_md5, str) or not re.fullmatch(r'[0-9a-fA-F]{32}', expected_md5):
+                raise ValueError("Missing or invalid expected download MD5")
+            identity = {'url': url, 'md5': expected_md5.lower()}
+            identity_path = local_path + '.download.json'
+            saved_identity = None
+            try:
+                with open(identity_path, 'r') as metadata:
+                    saved_identity = json.load(metadata)
+            except (OSError, ValueError):
+                pass
+            if saved_identity != identity:
+                # Unbound or changed resources must never inherit another download's bytes.
+                for path in (local_path, identity_path):
+                    if os.path.exists(path):
+                        os.remove(path)
+                metadata_tmp = identity_path + '.tmp'
+                try:
+                    with open(metadata_tmp, 'w') as metadata:
+                        json.dump(identity, metadata)
+                    os.replace(metadata_tmp, identity_path)
+                finally:
+                    if os.path.exists(metadata_tmp):
+                        os.remove(metadata_tmp)
             self._stop_all_threads()
             self._shutdown_flag = False
             thread = threading.Thread(target=self._input_poll_worker, name="input_poll")
@@ -1816,7 +1845,7 @@ class LauncherApp:
     def exit_cleanup(code: int, ui: UIRenderer, cfg: Config) -> None:
         LOGGER.info("Exiting with code %s", code)
         try:
-            for p in (cfg.tmp_info, cfg.tmp_app_update):
+            for p in (cfg.tmp_info, cfg.tmp_app_update, cfg.tmp_app_update + '.download.json'):
                 if os.path.isfile(p):
                     os.remove(p)
                 elif os.path.isdir(p):
