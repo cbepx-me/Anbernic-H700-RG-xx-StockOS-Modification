@@ -40,6 +40,8 @@
     "Fetching software catalog from repositories...": "Fetching software catalog from repositories...",
     "Fetching verification data...": "Fetching verification data...",
     "File integrity check failed.": "File integrity check failed.",
+    "Update package is incompatible.": "Update package is incompatible.",
+    "A complete updater release supporting protocol 2 is required.": "A complete updater release supporting protocol 2 is required.",
     "File": "File",
     "Games": "Games",
     "Group": "Group",
@@ -121,7 +123,5 @@
     "Launcher": "Launcher",
     "Choose an option": "Choose an option",
     "System Updater": "System Updater",
-    "Select": "Select",
-    "Update package is incompatible.": "Update package is incompatible.",
-    "A complete updater release supporting protocol 2 is required.": "A complete updater release supporting protocol 2 is required."
+    "Select": "Select"
 }

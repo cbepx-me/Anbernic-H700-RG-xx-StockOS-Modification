@@ -1599,6 +1599,11 @@ class Updater:
                     )
 
     def start_update(self, update_file_list: list, install_active: bool=False) -> bool:
+        if not update_file_list:
+            LOGGER.error("Refusing an empty system update file list")
+            self.draw_message_center(self.t.t("Update Failed"), self.t.t("Failed to update"),
+                                     icon="✘", status="error")
+            return False
         ui = self.ui
         t = self.t
 
@@ -2068,7 +2073,7 @@ exit 0
                         self.updater.start_append(data_update_url, data_md5)
                     elif not append_active and update_active:
                         self.updater.start_update(update_file_list, install_active=True)
-                    else:
+                    elif append_active and update_active:
                         if self.updater.start_update(update_file_list, install_active=False) is True:
                             self.updater.start_append(data_update_url, data_md5)
 

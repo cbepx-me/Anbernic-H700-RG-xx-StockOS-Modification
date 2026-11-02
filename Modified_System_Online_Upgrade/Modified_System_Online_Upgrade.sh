@@ -15,6 +15,13 @@ pkill -f "main.py" 2>/dev/null || true
 
 export PYSDL2_DLL_PATH="/usr/lib"
 
+remove_update_files() {
+    if ! rm -f "$@"; then
+        printf '%s\n' "Unable to remove update file(s): $*" >&2
+        exit 1
+    fi
+}
+
 app_package_compatible() {
     python3 "$progdir/upgrade/update_package.py" "$APP_FILE"
 }
@@ -22,13 +29,13 @@ app_package_compatible() {
 while true
 do
     # Legacy downloads are unverified; orphan handoff files are never installable.
-    rm -f /tmp/app.tar.gz /tmp/app.tar.gz.download.json /tmp/app.tar.gz.download.json.tmp \
+    remove_update_files /tmp/app.tar.gz /tmp/app.tar.gz.download.json /tmp/app.tar.gz.download.json.tmp \
           /tmp/app.tar.gz.part.download.json.tmp "$APP_MD5.tmp"
     if [ ! -f /tmp/app.tar.gz.part ]; then
-        rm -f /tmp/app.tar.gz.part.download.json
+        remove_update_files /tmp/app.tar.gz.part.download.json
     fi
     if [ ! -f "$APP_MD5" ]; then
-        rm -f "$APP_FILE"
+        remove_update_files "$APP_FILE"
     fi
     if [ -f "$NEW_FILE" ]; then
         chmod +x "$NEW_FILE"
@@ -40,38 +47,38 @@ do
                grep -qx 'APP_UPDATE_PROTOCOL=2' "$staged_wrapper" &&
                chmod 755 "$staged_wrapper" &&
                mv -f "$staged_wrapper" "$SCRIPT_NAME"; then
-                rm -f "$NEW_FILE"
+                remove_update_files "$NEW_FILE"
                 exec "$SCRIPT_NAME" "$@"
             else
-                rm -f "$staged_wrapper"
+                remove_update_files "$staged_wrapper"
                 echo "Wrapper replacement failed; keeping the installed wrapper"
                 exit 1
             fi
         else
             echo "The new wrapper is invalid or lacks the verified-update protocol; keeping the current wrapper"
-            rm -f "$NEW_FILE"
+            remove_update_files "$NEW_FILE"
         fi
     elif [ -f "$APP_MD5" ]; then
         expected_md5=$(cat "$APP_MD5")
         actual_md5=$(md5sum "$APP_FILE" 2>/dev/null)
         actual_md5=${actual_md5%% *}
         # Consume readiness before extraction, including failed/stale markers.
-        rm -f "$APP_MD5"
+        remove_update_files "$APP_MD5"
         if [[ "$expected_md5" =~ ^[[:xdigit:]]{32}$ ]] &&
            [ "${actual_md5,,}" = "${expected_md5,,}" ] &&
            tar -tf "$APP_FILE" >/dev/null 2>&1 &&
            app_package_compatible; then
             if ! tar -xf "$APP_FILE" -C "$progdir/"; then
                 echo "Application update extraction failed"
-                rm -f "$APP_FILE"
+                remove_update_files "$APP_FILE"
                 exit 1
             fi
         else
             echo "Rejecting unverified, invalid or incompatible application update"
-            rm -f "$APP_FILE"
+            remove_update_files "$APP_FILE"
             exit 1
         fi
-        rm -f "$APP_FILE"
+        remove_update_files "$APP_FILE"
     else
         [ -f /mnt/mod/ctrl/volumeCtrl.dge ] && /mnt/mod/ctrl/volumeCtrl.dge &
         sleep 1
