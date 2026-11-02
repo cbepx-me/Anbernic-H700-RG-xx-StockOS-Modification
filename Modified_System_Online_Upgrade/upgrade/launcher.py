@@ -393,14 +393,24 @@ class UIRenderer:
 
         if self._initialized:
             return
-        self.window = self._create_window()
-        self.renderer = self._create_renderer()
-        self.opt_stretch = True
-        self._initialized = True
+        self.window = None
+        self.renderer = None
+        self._sdl_initialized = False
+        try:
+            if sdl2.SDL_Init(sdl2.SDL_INIT_VIDEO) != 0:
+                raise RuntimeError("Failed to initialize SDL video")
+            self._sdl_initialized = True
+            self.window = self._create_window()
+            self.renderer = self._create_renderer()
+            self.opt_stretch = True
+            self._initialized = True
 
-        self._draw_start()
-        self.screen_reset()
-        self.set_active(self.create_image())
+            self._draw_start()
+            self.screen_reset()
+            self.set_active(self.create_image())
+        except Exception:
+            self.draw_end()
+            raise
 
         self.skip_first_input = True
 
@@ -462,9 +472,16 @@ class UIRenderer:
         return renderer
 
     def draw_end(self) -> None:
-        sdl2.SDL_DestroyRenderer(self.renderer)
-        sdl2.SDL_DestroyWindow(self.window)
-        sdl2.SDL_Quit()
+        if getattr(self, "renderer", None):
+            sdl2.SDL_DestroyRenderer(self.renderer)
+            self.renderer = None
+        if getattr(self, "window", None):
+            sdl2.SDL_DestroyWindow(self.window)
+            self.window = None
+        self._initialized = False
+        if getattr(self, "_sdl_initialized", False):
+            sdl2.SDL_Quit()
+            self._sdl_initialized = False
 
     def create_image(self) -> Image.Image:
         try:
@@ -1039,7 +1056,7 @@ class LauncherApp:
 
         self.t = Translator(self.system_lang)
         self.ui = UIRenderer(self.cfg, self.t, self.hw_info)
-        self.input = InputHandler(self.cfg)
+        self.input = self.ui.input
 
         self.menu_items = [
             {
@@ -1251,32 +1268,47 @@ class LauncherApp:
             self.page_index = page
 
     def launch_application(self, app_key, app_item):
-        self.ui.tips_info(f'{self.t.t("Launching")}: {self.t.t(app_item)}')
-        self.ui.draw_end()
-        self.input = None
-
         script_map = {
             "system_updater": "upgrade.py",
             "software_center": "installer.py"
         }
-
-        script = script_map.get(app_key)
-        script = os.path.join(APP_PATH, script)
-        if not script or not os.path.exists(script):
-            print(f"Error: {script} not found")
-            self.reinit_ui()
+        script_name = script_map.get(app_key)
+        script = os.path.join(APP_PATH, script_name) if script_name else None
+        if not script or not os.path.isfile(script):
+            LOGGER.error("Application script not found: %s", script_name or app_key)
+            self.draw_message_center(self.t.t("Error"), self.t.t("An unexpected error occurred"),
+                                     icon="✘", status="error")
             return
 
+        self._stop_all_threads()
+        if self._active_threads:
+            LOGGER.error("Cannot launch application while an input worker is still running")
+            return
+        self.ui.tips_info(f'{self.t.t("Launching")}: {self.t.t(app_item)}')
+        install_handoff = False
         try:
+            self.ui.draw_end()
+            self.input = None
             result = subprocess.run([sys.executable, script], check=False)
-            if result.returncode != 0:
-                print(f"Subprocess {script} exited with code {result.returncode}")
+            if app_key == "system_updater" and result.returncode == 37:
+                # A verified append update has prepared the wrapper's autostart handoff.
+                install_handoff = True
+            elif result.returncode != 0:
+                LOGGER.error("Subprocess %s exited with code %s", script, result.returncode)
         except Exception as e:
-            print(f"Failed to launch {script}: {e}")
-
-        self.reinit_ui()
+            LOGGER.error("Failed to launch %s: %s", script, e)
+        finally:
+            # Keep menu/configuration state, but never reuse destroyed SDL handles.
+            if not install_handoff:
+                self.reinit_ui()
+        if install_handoff:
+            self.exit_not_cleanup(37)
 
     def reinit_ui(self):
+        self.ui = UIRenderer(self.cfg, self.t, self.hw_info)
+        self.input = self.ui.input
+        self.input.reset()
+        self.skip_first_input = True
         self.cards_per_page = self._calculate_cards_per_page()
         self.total_pages = max(1, (len(self.menu_items) + self.cards_per_page - 1) // self.cards_per_page)
         self.selected_index = min(self.selected_index, len(self.menu_items) - 1)

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 version="1.0.3"
-progdir="$(cd $(dirname "$0") || exit; pwd)"
+progdir="$(cd -- "$(dirname -- "$0")" && pwd)" || exit 1
 program="${progdir}/upgrade/main.py"
 log_file="${progdir}/upgrade/log.txt"
 SCRIPT_NAME="$0"
@@ -14,6 +14,7 @@ APP_MD5="/tmp/anbernic-app-ready.md5"
 pkill -f "main.py" 2>/dev/null || true
 
 export PYSDL2_DLL_PATH="/usr/lib"
+exit_status=0
 
 remove_update_files() {
     if ! rm -f "$@"; then
@@ -82,8 +83,9 @@ do
     else
         [ -f /mnt/mod/ctrl/volumeCtrl.dge ] && /mnt/mod/ctrl/volumeCtrl.dge &
         sleep 1
-        $program > $log_file 2>&1
-        if [ $? -ne 36 ]; then
+        python3 "$program" > "$log_file" 2>&1
+        exit_status=$?
+        if [ "$exit_status" -ne 36 ]; then
             break
         fi
         kill -9 $(pidof volumeCtrl.dge)
@@ -91,4 +93,13 @@ do
     fi
 done
 kill -9 $(pidof volumeCtrl.dge)
-exit 0
+if [ "$exit_status" -eq 37 ]; then
+    if [ -f "/mnt/mmc/autostart" ] && [ -x "/mnt/mmc/autostart" ]; then
+        "/mnt/mmc/autostart"
+        exit_status=$?
+    else
+        echo "Installation handoff failed: autostart is missing or not executable" >&2
+        exit_status=1
+    fi
+fi
+exit "$exit_status"

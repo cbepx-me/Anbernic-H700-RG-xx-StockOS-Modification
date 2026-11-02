@@ -1956,18 +1956,33 @@ class MainApp:
                 update_script_path = os.path.join(update_dir, "autostart")
                 update_script_content = """#!/bin/bash
 
-rm -f $0
+rm -f "$0" || exit 1
+script_found=0
 for TF_PATH in mmc sdcard
 do
-    [ -f /mnt/${TF_PATH}/update/update.sh ] && /mnt/${TF_PATH}/update/update.sh
+    update_script="/mnt/${TF_PATH}/update/update.sh"
+    if [ -f "$update_script" ]; then
+        script_found=1
+        "$update_script"
+        update_status=$?
+        if [ "$update_status" -ne 0 ]; then
+            echo "Update script failed: $update_script" >&2
+            exit "$update_status"
+        fi
+    fi
 done
+if [ "$script_found" -eq 0 ]; then
+    echo "No update scripts found" >&2
+    exit 1
+fi
 exit 0
 """
                 with open(update_script_path, "w") as f:
                     f.write(update_script_content)
                 os.chmod(update_script_path, 0o755)
                 os.sync()
-                sys.exit(0)
+                # Distinguish prepared installation from an ordinary return to the menu.
+                sys.exit(37)
 
             ui.draw_end()
             os.sync()
