@@ -106,7 +106,7 @@ def load_console_menu() -> None:
     gr.draw_rectangle_r([10, 40, x_size - 10, y_size - 40], 15, fill=gr.colorGrayD2, outline=None)
     gr.draw_text((x_size / 2, 20), f"{translator.translate('Bezel Custom Manager')} {ver}", font=23, anchor="mm")
 
-    if len(available_systems) > 1:
+    if available_systems:
         start_idx = int(selected_position / max_elem) * max_elem
         end_idx = start_idx + max_elem
         for i, system in enumerate(available_systems[start_idx:end_idx]):
