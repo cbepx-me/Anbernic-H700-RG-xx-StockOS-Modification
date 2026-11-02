@@ -67,6 +67,8 @@ def load_console_menu() -> None:
     global selected_position, selected_system, current_window, skip_input_check
 
     available_systems = bezels.get_available_systems(an.get_sd_storage_path())
+    # A system can disappear after its last config is deleted.
+    selected_position = max(0, min(selected_position, len(available_systems) - 1))
 
     if available_systems:
         if input.key("DY"):
