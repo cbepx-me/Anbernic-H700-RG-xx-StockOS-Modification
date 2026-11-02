@@ -12,6 +12,7 @@ from __future__ import annotations
 # =========================
 import ctypes
 import glob
+import re
 import hashlib
 import json
 import logging
@@ -837,54 +838,12 @@ class Updater:
         self.session.headers.update(self.cfg.headers)
 
     def _download_file(self, url, local_path, progress_hook=None, num_file=None):
+        # Validate every response, including retries: a server may ignore Range.
+        block_size = 512 * 1024
+        max_retries = 3
+        retry_count = 0
+        restart = False
         try:
-            file_size = 0
-            if os.path.exists(local_path):
-                file_size = os.path.getsize(local_path)
-
-            headers = self.cfg.headers.copy()
-            if file_size > 0:
-                headers['Range'] = f'bytes={file_size}-'
-                LOGGER.info("Resuming download from byte %s", file_size)
-
-            response = self.session.get(url, stream=True, timeout=(60, 300), headers=headers)
-
-            if file_size > 0 and response.status_code == 416:
-                content_range = response.headers.get('content-range', '')
-                if content_range.startswith('bytes */'):
-                    try:
-                        total_size_from_server = int(content_range.split('/')[1])
-                        if file_size >= total_size_from_server:
-                            LOGGER.info("File already fully downloaded (416 due to complete file)")
-                            return True
-                    except (ValueError, IndexError):
-                        pass
-
-                LOGGER.warning("Server doesn't support range requests or range invalid, restarting download")
-                os.remove(local_path)
-                file_size = 0
-                headers.pop('Range', None)
-                response = self.session.get(url, stream=True, timeout=(60, 300), headers=headers)
-
-            response.raise_for_status()
-
-            total_size = int(response.headers.get('content-length', 0))
-            if 'content-range' in response.headers:
-                content_range = response.headers['content-range']
-                if '/' in content_range:
-                    total_size = int(content_range.split('/')[-1])
-
-            if file_size > 0 and total_size > file_size:
-                total_size = total_size - file_size
-            elif file_size > 0:
-                total_size = total_size
-
-            block_size = 512 * 1024  # 512KB block
-            downloaded = file_size
-            retry_count = 0
-            max_retries = 3
-
-            mode = 'ab' if file_size > 0 else 'wb'
             self._stop_all_threads()
             self._shutdown_flag = False
             thread = threading.Thread(target=self._input_poll_worker, name="input_poll")
@@ -892,45 +851,90 @@ class Updater:
             self._active_threads.append(thread)
             thread.start()
 
-            with open(local_path, mode) as f:
-                while retry_count <= max_retries:
-                    try:
-                        for data in response.iter_content(block_size):
-                            if self.input.slide_key():
-                                LOGGER.info("Download cancelled by user")
-                                return "cancelled"
-
-                            downloaded += len(data)
-                            f.write(data)
-                            f.flush()
-
-                            if progress_hook and total_size > 0:
-                                percent = (downloaded / (file_size + total_size)) * 100
-                                progress_hook(
-                                    (downloaded - file_size) // block_size,
-                                    block_size,
-                                    total_size,
-                                    num_file
-                                )
-                        break
-                    except (requests.exceptions.ChunkedEncodingError,
-                            requests.exceptions.ConnectionError) as e:
+            while True:
+                if self.input.slide_key():
+                    return "cancelled"
+                file_size = os.path.getsize(local_path) if os.path.exists(local_path) else 0
+                offset = 0 if restart else file_size
+                headers = self.cfg.headers.copy()
+                headers.pop('Range', None)
+                # Byte offsets and Content-Length must describe the saved bytes.
+                headers['Accept-Encoding'] = 'identity'
+                if offset:
+                    headers['Range'] = f'bytes={offset}-'
+                response = None
+                try:
+                    response = self.session.get(url, stream=True, timeout=(60, 300), headers=headers)
+                    if response.status_code == 416 and offset:
+                        match = re.fullmatch(r'bytes \*/(\d+)', response.headers.get('content-range', ''))
+                        if match and offset == int(match.group(1)):
+                            # The caller still verifies the complete file's checksum.
+                            return True
+                        if retry_count >= max_retries:
+                            return False
                         retry_count += 1
-                        if retry_count > max_retries:
-                            raise e
-                        LOGGER.warning("Download interrupted, retrying (%s/%s): %s",
-                                       retry_count, max_retries, e)
-
-                        current_size = os.path.getsize(local_path)
-                        headers['Range'] = f'bytes={current_size}-'
-
-                        time.sleep(2 * retry_count)
-
-                        response = self.session.get(url, stream=True, timeout=(60, 300), headers=headers)
-                        response.raise_for_status()
+                        restart = True
                         continue
 
-            return True
+                    response.raise_for_status()
+                    if response.headers.get('content-encoding', 'identity').lower() != 'identity':
+                        raise ValueError("Unexpected content encoding for a byte-range download")
+                    length_header = response.headers.get('content-length')
+                    body_size = int(length_header) if length_header is not None else None
+                    if body_size is not None and body_size < 0:
+                        raise ValueError("Invalid Content-Length")
+
+                    if response.status_code == 206:
+                        match = re.fullmatch(r'bytes (\d+)-(\d+)/(\d+)',
+                                             response.headers.get('content-range', ''))
+                        if not match:
+                            raise ValueError("Missing or invalid Content-Range")
+                        start, end, total_size = map(int, match.groups())
+                        if start != offset or end < start or end != total_size - 1:
+                            raise ValueError("Content-Range does not match the requested remainder")
+                        expected_size = end - start + 1
+                        if body_size is not None and body_size != expected_size:
+                            raise ValueError("Content-Length disagrees with Content-Range")
+                        body_size = expected_size
+                    elif response.status_code == 200:
+                        # A full response replaces, never appends to, the old partial file.
+                        offset = 0
+                        total_size = body_size
+                    else:
+                        raise ValueError("Unexpected download response status")
+
+                    received = 0
+                    mode = 'ab' if offset else 'wb'
+                    with open(local_path, mode) as f:
+                        for data in response.iter_content(block_size):
+                            if self.input.slide_key():
+                                return "cancelled"
+                            if not data:
+                                continue
+                            if body_size is not None and received + len(data) > body_size:
+                                raise ValueError("Download body exceeds the declared length")
+                            f.write(data)
+                            f.flush()
+                            received += len(data)
+                            if progress_hook and total_size:
+                                # The existing callback accepts block count, size and full size.
+                                progress_hook(offset + received, 1, total_size, num_file)
+                    if body_size is not None and received != body_size:
+                        raise requests.exceptions.ChunkedEncodingError("Incomplete download body")
+                    return True
+                except (requests.exceptions.ChunkedEncodingError,
+                        requests.exceptions.ConnectionError,
+                        requests.exceptions.Timeout) as e:
+                    retry_count += 1
+                    if retry_count > max_retries:
+                        raise
+                    LOGGER.warning("Download interrupted, retrying (%s/%s): %s",
+                                   retry_count, max_retries, e)
+                    restart = False
+                    time.sleep(2 * retry_count)
+                finally:
+                    if response is not None:
+                        response.close()
         except requests.exceptions.Timeout:
             LOGGER.error("Timeout error downloading file: %s", url)
             return False
@@ -944,7 +948,6 @@ class Updater:
             LOGGER.error("Unexpected error downloading file: %s - %s", url, e)
             return False
         finally:
-            # 确保线程被停止
             self._stop_all_threads()
 
     def _input_poll_worker(self):
