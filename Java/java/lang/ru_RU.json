@@ -2,10 +2,10 @@
   "Select": "Выбрать",
   "Exit": "Выход",
   "No games found": "Игры не найдены",
-  "No internet connection": "Невозможно подключиться к Интернету,\nповторите попытку после подключения...",
-  "JAVA not found. Requires loading": "JAVA не найдена. Требуется загрузка.",
-  "Downloading JAVA": "Скачивание JAVA",
-  "Unpacking JAVA": "Распаковка JAVA",
-  "JAVA is installed": "JAVA установлена",
-  "JAVA download or unpacking error": "Ошибка загрузки или распаковки JAVA"
+  "No internet connection": "Нет подключения к интернету.\nПодключитесь к сети и попробуйте снова.",
+  "JAVA not found. Requires loading": "Java не найдена. Требуется загрузка.",
+  "Downloading JAVA": "Загрузка Java",
+  "Unpacking JAVA": "Распаковка Java",
+  "JAVA is installed": "Java установлена",
+  "JAVA download or unpacking error": "Ошибка загрузки или распаковки Java"
 }

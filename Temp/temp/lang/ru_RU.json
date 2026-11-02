@@ -1,15 +1,15 @@
 {
   "System Monitor": "Системный монитор",
-  "Sensors list": "Список температурных датчиков:",
+  "Sensors list": "Датчики температуры:",
   "cpu_thermal_zone": "Процессор (CPU)",
   "gpu_thermal_zone": "Видеочип (GPU)",
   "ve_thermal_zone": "Видеодекодер (VE)",
   "ddr_thermal_zone": "Оперативная память (DDR)",
-  "Battery info": "Информация о батарее:",
+  "Battery info": "Аккумулятор:",
   "battery_level":"Уровень заряда",
   "battery_voltage":"Напряжение",
   "battery_temp":"Температура",
-  "battery_status": "Состояние батареи",
+  "battery_status": "Состояние",
   "Charging": "Заряжается",
   "Discharging": "Разряжается"
 }
