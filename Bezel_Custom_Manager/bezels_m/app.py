@@ -165,7 +165,7 @@ def load_cfg_menu() -> None:
             os.remove(cfg_file)
         time.sleep(1)
         gr.draw_log(
-            f"{translator.translate('Reset bezel for')} {selected_system} {translator.translate('to')} default", fill=gr.colorBlue, outline=gr.colorBlueD1
+            f"{translator.translate('Reset bezel for')} {selected_system} {translator.translate('to')} {translator.translate('default')}", fill=gr.colorBlue, outline=gr.colorBlueD1
         )
         gr.draw_paint()
         time.sleep(3)
@@ -250,7 +250,7 @@ def load_cfg_menu() -> None:
                 overlay_name = overlay_name.split('.cfg')[0]
                 break
     else:
-        overlay_name = "default"
+        overlay_name = translator.translate('default')
     gr.draw_clear()
 
     gr.draw_rectangle_r([10, 40, x_size - 10, y_size - 40], 15, fill=gr.colorGray, outline=None)
