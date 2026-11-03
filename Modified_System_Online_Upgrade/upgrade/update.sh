@@ -1,44 +1,105 @@
 #!/bin/bash
 
 version="1.0.3"
-progdir="$(cd $(dirname "$0") || exit; pwd)"
+progdir="$(cd -- "$(dirname -- "$0")" && pwd)" || exit 1
 program="${progdir}/upgrade/main.py"
 log_file="${progdir}/upgrade/log.txt"
 SCRIPT_NAME="$0"
 NEW_FILE="$progdir/upgrade/update.sh"
-APP_FILE="/tmp/app.tar.gz"
+# Only verified producers/consumers participate in this protocol.
+APP_UPDATE_PROTOCOL=2
+APP_FILE="/tmp/anbernic-app-ready.tar.gz"
+APP_MD5="/tmp/anbernic-app-ready.md5"
 
 pkill -f "main.py" 2>/dev/null || true
 
 export PYSDL2_DLL_PATH="/usr/lib"
+exit_status=0
+
+remove_update_files() {
+    if ! rm -f "$@"; then
+        printf '%s\n' "Unable to remove update file(s): $*" >&2
+        exit 1
+    fi
+}
+
+app_package_compatible() {
+    python3 "$progdir/upgrade/update_package.py" "$APP_FILE"
+}
 
 while true
 do
+    # Legacy downloads are unverified; orphan handoff files are never installable.
+    remove_update_files /tmp/app.tar.gz /tmp/app.tar.gz.download.json /tmp/app.tar.gz.download.json.tmp \
+          /tmp/app.tar.gz.part.download.json.tmp "$APP_MD5.tmp"
+    if [ ! -f /tmp/app.tar.gz.part ]; then
+        remove_update_files /tmp/app.tar.gz.part.download.json
+    fi
+    if [ ! -f "$APP_MD5" ]; then
+        remove_update_files "$APP_FILE"
+    fi
     if [ -f "$NEW_FILE" ]; then
         chmod +x "$NEW_FILE"
-        if bash -n "$NEW_FILE" 2>/dev/null; then
-            cat "$NEW_FILE" > "$SCRIPT_NAME"
-            rm -f "$NEW_FILE"
-            exec "$SCRIPT_NAME" "$@"
+        if bash -n "$NEW_FILE" 2>/dev/null && grep -qx 'APP_UPDATE_PROTOCOL=2' "$NEW_FILE"; then
+            staged_wrapper=$(mktemp "${SCRIPT_NAME}.XXXXXX")
+            if [ -n "$staged_wrapper" ] &&
+               cat "$NEW_FILE" > "$staged_wrapper" &&
+               bash -n "$staged_wrapper" &&
+               grep -qx 'APP_UPDATE_PROTOCOL=2' "$staged_wrapper" &&
+               chmod 755 "$staged_wrapper" &&
+               mv -f "$staged_wrapper" "$SCRIPT_NAME"; then
+                remove_update_files "$NEW_FILE"
+                exec "$SCRIPT_NAME" "$@"
+            else
+                remove_update_files "$staged_wrapper"
+                echo "Wrapper replacement failed; keeping the installed wrapper"
+                exit 1
+            fi
         else
-            echo "The new version has syntax errors and the update has been aborted"
-            rm -f "$NEW_FILE"
+            echo "The new wrapper is invalid or lacks the verified-update protocol; keeping the current wrapper"
+            remove_update_files "$NEW_FILE"
         fi
-    elif [ -f "$APP_FILE" ]; then
-        sleep 5
-        tar -xf "$APP_FILE" -C "$progdir/"
-        [ -f "$APP_FILE" ] && rm -rf "$APP_FILE"
+    elif [ -f "$APP_MD5" ]; then
+        expected_md5=$(cat "$APP_MD5")
+        actual_md5=$(md5sum "$APP_FILE" 2>/dev/null)
+        actual_md5=${actual_md5%% *}
+        # Consume readiness before extraction, including failed/stale markers.
+        remove_update_files "$APP_MD5"
+        if [[ "$expected_md5" =~ ^[[:xdigit:]]{32}$ ]] &&
+           [ "${actual_md5,,}" = "${expected_md5,,}" ] &&
+           tar -tf "$APP_FILE" >/dev/null 2>&1 &&
+           app_package_compatible; then
+            if ! tar -xf "$APP_FILE" -C "$progdir/"; then
+                echo "Application update extraction failed"
+                remove_update_files "$APP_FILE"
+                exit 1
+            fi
+        else
+            echo "Rejecting unverified, invalid or incompatible application update"
+            remove_update_files "$APP_FILE"
+            exit 1
+        fi
+        remove_update_files "$APP_FILE"
     else
         [ -f /mnt/mod/ctrl/volumeCtrl.dge ] && /mnt/mod/ctrl/volumeCtrl.dge &
         sleep 1
-        $program > $log_file 2>&1
-        if [ $? -ne 36 ]; then
+        python3 "$program" > "$log_file" 2>&1
+        exit_status=$?
+        if [ "$exit_status" -ne 36 ]; then
             break
         fi
         kill -9 $(pidof volumeCtrl.dge)
         sleep 1
     fi
 done
-[ -x /mnt/mmc/autostart ] && /mnt/mmc/autostart
 kill -9 $(pidof volumeCtrl.dge)
-exit 0
+if [ "$exit_status" -eq 37 ]; then
+    if [ -f "/mnt/mmc/autostart" ] && [ -x "/mnt/mmc/autostart" ]; then
+        "/mnt/mmc/autostart"
+        exit_status=$?
+    else
+        echo "Installation handoff failed: autostart is missing or not executable" >&2
+        exit_status=1
+    fi
+fi
+exit "$exit_status"

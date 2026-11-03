@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 import glob
+import re
 import hashlib
 import shutil
 import socket
+import select
 import subprocess
 import threading
 import time
@@ -16,6 +18,7 @@ from typing import Dict, Optional, Tuple
 import ctypes
 import json
 import zipfile
+from update_package import validate_update_package
 import struct
 from dataclasses import dataclass
 
@@ -24,6 +27,7 @@ from dataclasses import dataclass
 # =========================
 from PIL import Image, ImageDraw, ImageFont
 
+APP_UPDATE_PROTOCOL = 2
 cur_app_ver = "1.1.5"
 
 def ensure_requests():
@@ -122,7 +126,9 @@ class Config:
 
     tmp_path: str = APP_PATH + "/tmp" if os.name == "nt" else "/tmp"
     tmp_info: str = os.path.join(tmp_path, "info.json")
-    tmp_app_update: str =  os.path.join(tmp_path, "app.tar.gz")
+    tmp_app_update: str =  os.path.join(tmp_path, "app.tar.gz.part")
+    tmp_app_ready: str = os.path.join(tmp_path, "anbernic-app-ready.tar.gz")
+    tmp_app_md5: str = os.path.join(tmp_path, "anbernic-app-ready.md5")
 
     bytes_per_pixel: int = 4
     keymap: Dict[int, str] = None
@@ -292,10 +298,14 @@ class InputHandler:
             return fallback
         raise RuntimeError("No ANBERNIC input device found")
 
-    def poll(self) -> None:
+    def poll(self, stop_event=None) -> None:
+        if stop_event is not None and stop_event.is_set():
+            return
         if os.name == "nt":
             event = sdl2.SDL_Event()
             while sdl2.SDL_PollEvent(ctypes.byref(event)):
+                if stop_event is not None and stop_event.is_set():
+                    return
                 if event.type == sdl2.SDL_KEYDOWN:
                     sym = event.key.keysym.sym
                     if sym in self.key_map:
@@ -310,33 +320,42 @@ class InputHandler:
             self.code_name = ""
             self.value = 0
         else:
+            fd = None
             try:
-                with open(self.device_path, "rb") as f:
-                    while True:
-                        event = f.read(24)
-                        if not event:
-                            break
-                        (tv_sec, tv_usec, etype, kcode, kvalue) = struct.unpack(
-                            "llHHI", event
-                        )
-                        if kvalue != 0:
-                            if kvalue != 1:
-                                kvalue = -1
-                            else:
-                                kvalue = 1
-                            self.code_name = self.cfg.keymap.get(kcode, str(kcode))
-                            self.value = kvalue
-                            LOGGER.debug(
-                                "Key pressed: %s (code: %s, value: %s)",
-                                self.code_name,
-                                kcode,
-                                kvalue,
-                            )
+                fd = os.open(self.device_path, os.O_RDONLY | os.O_NONBLOCK)
+                pending = b""
+                while stop_event is None or not stop_event.is_set():
+                    readable, _, _ = select.select([fd], [], [], 0.05 if stop_event is not None else None)
+                    if stop_event is not None and stop_event.is_set():
+                        return
+                    if not readable:
+                        continue
+                    try:
+                        data = os.read(fd, 24 - len(pending))
+                    except BlockingIOError:
+                        continue
+                    if not data:
+                        break
+                    pending += data
+                    if len(pending) < 24:
+                        continue
+                    tv_sec, tv_usec, etype, kcode, kvalue = struct.unpack("llHHI", pending)
+                    pending = b""
+                    if kvalue != 0:
+                        if stop_event is not None and stop_event.is_set():
                             return
+                        self.code_name = self.cfg.keymap.get(kcode, str(kcode))
+                        self.value = 1 if kvalue == 1 else -1
+                        LOGGER.debug("Key pressed: %s (code: %s, value: %s)",
+                                     self.code_name, kcode, self.value)
+                        return
             except Exception as e:
                 LOGGER.error("Error reading input: %s", e)
                 self.code_name = ""
                 self.value = 0
+            finally:
+                if fd is not None:
+                    os.close(fd)
 
     def is_key(self, name: str, key_value: int = 99) -> bool:
         if self.code_name == name:
@@ -374,14 +393,24 @@ class UIRenderer:
 
         if self._initialized:
             return
-        self.window = self._create_window()
-        self.renderer = self._create_renderer()
-        self.opt_stretch = True
-        self._initialized = True
+        self.window = None
+        self.renderer = None
+        self._sdl_initialized = False
+        try:
+            if sdl2.SDL_Init(sdl2.SDL_INIT_VIDEO) != 0:
+                raise RuntimeError("Failed to initialize SDL video")
+            self._sdl_initialized = True
+            self.window = self._create_window()
+            self.renderer = self._create_renderer()
+            self.opt_stretch = True
+            self._initialized = True
 
-        self._draw_start()
-        self.screen_reset()
-        self.set_active(self.create_image())
+            self._draw_start()
+            self.screen_reset()
+            self.set_active(self.create_image())
+        except Exception:
+            self.draw_end()
+            raise
 
         self.skip_first_input = True
 
@@ -443,9 +472,16 @@ class UIRenderer:
         return renderer
 
     def draw_end(self) -> None:
-        sdl2.SDL_DestroyRenderer(self.renderer)
-        sdl2.SDL_DestroyWindow(self.window)
-        sdl2.SDL_Quit()
+        if getattr(self, "renderer", None):
+            sdl2.SDL_DestroyRenderer(self.renderer)
+            self.renderer = None
+        if getattr(self, "window", None):
+            sdl2.SDL_DestroyWindow(self.window)
+            self.window = None
+        self._initialized = False
+        if getattr(self, "_sdl_initialized", False):
+            sdl2.SDL_Quit()
+            self._sdl_initialized = False
 
     def create_image(self) -> Image.Image:
         try:
@@ -792,6 +828,7 @@ class UIRenderer:
             else:
                 if current_line:
                     lines.append(' '.join(current_line))
+                    current_line = []
                 if ui.active_draw.textbbox((0, 0), word, font=font)[2] > max_width:
                     chars = list(word)
                     split_word = []
@@ -1019,7 +1056,7 @@ class LauncherApp:
 
         self.t = Translator(self.system_lang)
         self.ui = UIRenderer(self.cfg, self.t, self.hw_info)
-        self.input = InputHandler(self.cfg)
+        self.input = self.ui.input
 
         self.menu_items = [
             {
@@ -1231,32 +1268,47 @@ class LauncherApp:
             self.page_index = page
 
     def launch_application(self, app_key, app_item):
-        self.ui.tips_info(f'{self.t.t("Launching")}: {self.t.t(app_item)}')
-        self.ui.draw_end()
-        self.input = None
-
         script_map = {
             "system_updater": "upgrade.py",
             "software_center": "installer.py"
         }
-
-        script = script_map.get(app_key)
-        script = os.path.join(APP_PATH, script)
-        if not script or not os.path.exists(script):
-            print(f"Error: {script} not found")
-            self.reinit_ui()
+        script_name = script_map.get(app_key)
+        script = os.path.join(APP_PATH, script_name) if script_name else None
+        if not script or not os.path.isfile(script):
+            LOGGER.error("Application script not found: %s", script_name or app_key)
+            self.draw_message_center(self.t.t("Error"), self.t.t("An unexpected error occurred"),
+                                     icon="✘", status="error")
             return
 
+        self._stop_all_threads()
+        if self._active_threads:
+            LOGGER.error("Cannot launch application while an input worker is still running")
+            return
+        self.ui.tips_info(f'{self.t.t("Launching")}: {self.t.t(app_item)}')
+        install_handoff = False
         try:
+            self.ui.draw_end()
+            self.input = None
             result = subprocess.run([sys.executable, script], check=False)
-            if result.returncode != 0:
-                print(f"Subprocess {script} exited with code {result.returncode}")
+            if app_key == "system_updater" and result.returncode == 37:
+                # A verified append update has prepared the wrapper's autostart handoff.
+                install_handoff = True
+            elif result.returncode != 0:
+                LOGGER.error("Subprocess %s exited with code %s", script, result.returncode)
         except Exception as e:
-            print(f"Failed to launch {script}: {e}")
-
-        self.reinit_ui()
+            LOGGER.error("Failed to launch %s: %s", script, e)
+        finally:
+            # Keep menu/configuration state, but never reuse destroyed SDL handles.
+            if not install_handoff:
+                self.reinit_ui()
+        if install_handoff:
+            self.exit_not_cleanup(37)
 
     def reinit_ui(self):
+        self.ui = UIRenderer(self.cfg, self.t, self.hw_info)
+        self.input = self.ui.input
+        self.input.reset()
+        self.skip_first_input = True
         self.cards_per_page = self._calculate_cards_per_page()
         self.total_pages = max(1, (len(self.menu_items) + self.cards_per_page - 1) // self.cards_per_page)
         self.selected_index = min(self.selected_index, len(self.menu_items) - 1)
@@ -1331,7 +1383,7 @@ class LauncherApp:
                     ui.info_header(t.t("Update application"), t.t("Downloading update package"))
                     ui.text((ui.x_size // 2, ui.y_size - 120),
                             t.t("Tip: Press any key to cancel the download and return to the main menu"),
-                            font=22, anchor="mm", color=ui.cfg.COLOR_SECONDARY)
+                            font=22, anchor="mm", color=ui.cfg.COLOR_WARNING)
                     self.progress_bar(ui.y_size // 2 - 20, percent, label_top=label_top, label_bottom=label_bottom)
                     ui.paint()
             except Exception as e:
@@ -1340,144 +1392,261 @@ class LauncherApp:
         LOGGER.info("Starting upgrade app process")
         self.draw_message_center(t.t("Downloading"), t.t("Fetching verification data..."), "㊙", "info")
 
-        download_result = self._download_file(update_url, self.cfg.tmp_app_update, progress_hook, '(1/1)')
-
-        if download_result == "cancelled":
-            LOGGER.info("App update cancelled by user")
-            self.draw_message_center(t.t("Download Cancelled"), t.t("Returning to main menu..."), "☹", "info")
-            time.sleep(2)
-            return
-
-        if not download_result:
-            LOGGER.error(f"Error downloading update file: {update_url}")
-            self.draw_message_center(t.t("Download Error"), t.t("Failed to download update file."), "✘", "error")
-            self.exit_cleanup(2, self.ui, self.cfg)
-
-        LOGGER.info(f"Verifying downloaded files: {self.cfg.tmp_app_update}")
-        self.draw_message_center(t.t("Verifying"), t.t("Checking file integrity..."), "✪", "info")
-
-        down_md5 = ""
-
-        if os.path.exists(self.cfg.tmp_app_update):
-            try:
-                md5_hash = hashlib.md5()
-                with open(self.cfg.tmp_app_update, "rb") as f:
-                    for chunk in iter(lambda: f.read(4096), b""):
-                        md5_hash.update(chunk)
-                down_md5 = md5_hash.hexdigest().lower()
-                LOGGER.info("Calculated MD5 of update file: %s", down_md5)
-            except Exception as e:
-                LOGGER.error("Error calculating MD5: %s", e)
-                down_md5 = ""
-
-        if down_md5 and update_md5 and down_md5.upper() == update_md5.upper():
-            LOGGER.info("MD5 verification successful")
-            LOGGER.info("Application restart")
-            self.draw_message_center(t.t("Prompt message"), t.t("Updating, restart later..."), "㊙", "info")
-            time.sleep(2)
-            LOGGER.info("Restarting application for update...")
-            self._cleanup_before_restart()
-            self.exit_not_cleanup(36)
-        else:
-            LOGGER.error("MD5 verification failed. Expected: %s, Got: %s", update_md5, down_md5)
-            self.draw_message_center(t.t("Verification Failed"), t.t("File integrity check failed."), "✘", "error")
-            self.exit_cleanup(3, self.ui, self.cfg)
-
-    def _download_file(self, url, local_path, progress_hook=None, num_file=None):
+        # Keep cancellation polling alive until verification/publication finishes.
         try:
-            file_size = 0
-            if os.path.exists(local_path):
-                file_size = os.path.getsize(local_path)
+            # Failed cleanup must not publish or download another package.
+            for path in (self.cfg.tmp_app_md5, self.cfg.tmp_app_ready):
+                if os.path.exists(path):
+                    os.remove(path)
+            download_result = self._download_file(update_url, self.cfg.tmp_app_update, progress_hook, '(1/1)', keep_input=True, expected_md5=update_md5)
 
-            headers = self.cfg.headers.copy()
-            if file_size > 0:
-                headers['Range'] = f'bytes={file_size}-'
-                LOGGER.info("Resuming download from byte %s", file_size)
+            if download_result == "cancelled" or self.input.slide_key():
+                LOGGER.info("App update cancelled by user")
+                self.draw_message_center(t.t("Download Cancelled"), t.t("Returning to main menu..."), "☹", "info")
+                time.sleep(2)
+                return
 
-            response = self.session.get(url, stream=True, timeout=(60, 300), headers=headers)
+            if not download_result:
+                LOGGER.error(f"Error downloading update file: {update_url}")
+                self._stop_all_threads()
+                self.draw_message_center(t.t("Download Error"), t.t("Failed to download update file."), "✘", "error")
+                self.exit_cleanup(2, self.ui, self.cfg)
+                return
 
-            if file_size > 0 and response.status_code == 416:
-                content_range = response.headers.get('content-range', '')
-                if content_range.startswith('bytes */'):
-                    try:
-                        total_size_from_server = int(content_range.split('/')[1])
-                        if file_size >= total_size_from_server:
-                            LOGGER.info("File already fully downloaded (416 due to complete file)")
-                            return True
-                    except (ValueError, IndexError):
-                        pass
+            LOGGER.info(f"Verifying downloaded files: {self.cfg.tmp_app_update}")
+            self.draw_message_center(t.t("Verifying"), t.t("Checking file integrity..."), "✪", "info")
 
-                LOGGER.warning("Server doesn't support range requests or range invalid, restarting download")
-                os.remove(local_path)
-                file_size = 0
-                headers.pop('Range', None)
-                response = self.session.get(url, stream=True, timeout=(60, 300), headers=headers)
+            down_md5 = ""
 
-            response.raise_for_status()
+            if os.path.exists(self.cfg.tmp_app_update):
+                try:
+                    md5_hash = hashlib.md5()
+                    with open(self.cfg.tmp_app_update, "rb") as f:
+                        for chunk in iter(lambda: f.read(4096), b""):
+                            md5_hash.update(chunk)
+                    down_md5 = md5_hash.hexdigest().lower()
+                    LOGGER.info("Calculated MD5 of update file: %s", down_md5)
+                except Exception as e:
+                    LOGGER.error("Error calculating MD5: %s", e)
+                    down_md5 = ""
 
-            total_size = int(response.headers.get('content-length', 0))
-            if 'content-range' in response.headers:
-                content_range = response.headers['content-range']
-                if '/' in content_range:
-                    total_size = int(content_range.split('/')[-1])
-
-            if total_size > file_size > 0:
-                total_size = total_size - file_size
-            elif file_size > 0:
-                total_size = total_size
-
-            block_size = 512 * 1024  # 512KB block
-            downloaded = file_size
-            retry_count = 0
-            max_retries = 3
-
-            mode = 'ab' if file_size > 0 else 'wb'
+            if down_md5 and update_md5 and down_md5.upper() == update_md5.upper():
+                if self.input.slide_key():
+                    LOGGER.info("App update cancelled before publishing verified package")
+                    return
+                try:
+                    validate_update_package(self.cfg.tmp_app_update)
+                except ValueError as e:
+                    LOGGER.error("Incompatible application package: %s", e)
+                    for path in (self.cfg.tmp_app_update, self.cfg.tmp_app_update + '.download.json'):
+                        if os.path.exists(path):
+                            os.remove(path)
+                    self._stop_all_threads()
+                    self.draw_message_center(
+                        t.t("Update package is incompatible."),
+                        t.t("A complete updater release supporting protocol 2 is required."), "✘", "error")
+                    return
+                try:
+                    os.replace(self.cfg.tmp_app_update, self.cfg.tmp_app_ready)
+                    identity_path = self.cfg.tmp_app_update + '.download.json'
+                    # Retain the binding until publication commits, including late cancellation.
+                    # Publish the readiness marker last; the wrapper rechecks the bytes.
+                    marker_tmp = self.cfg.tmp_app_md5 + ".tmp"
+                    with open(marker_tmp, "w") as marker:
+                        marker.write(down_md5 + "\n")
+                    if self.input.slide_key():
+                        os.remove(marker_tmp)
+                        os.replace(self.cfg.tmp_app_ready, self.cfg.tmp_app_update)
+                        return
+                    os.replace(marker_tmp, self.cfg.tmp_app_md5)
+                    if os.path.exists(identity_path):
+                        os.remove(identity_path)
+                except OSError as e:
+                    LOGGER.error("Unable to publish verified update: %s", e)
+                    for path in (self.cfg.tmp_app_md5, self.cfg.tmp_app_md5 + ".tmp"):
+                        if os.path.exists(path):
+                            os.remove(path)
+                    self.exit_cleanup(3, self.ui, self.cfg)
+                    return
+                LOGGER.info("MD5 verification successful")
+                LOGGER.info("Application restart")
+                self.draw_message_center(t.t("Prompt message"), t.t("Updating, restart later..."), "㊙", "info")
+                time.sleep(2)
+                LOGGER.info("Restarting application for update...")
+                self._cleanup_before_restart()
+                self.exit_not_cleanup(36)
+            else:
+                for path in (self.cfg.tmp_app_update, self.cfg.tmp_app_update + '.download.json'):
+                    if os.path.exists(path):
+                        os.remove(path)
+                LOGGER.error("MD5 verification failed. Expected: %s, Got: %s", update_md5, down_md5)
+                self._stop_all_threads()
+                self.draw_message_center(t.t("Verification Failed"), t.t("File integrity check failed."), "✘", "error")
+                self.exit_cleanup(3, self.ui, self.cfg)
+        except OSError as e:
+            LOGGER.error("Unable to prepare application update: %s", e)
             self._stop_all_threads()
-            self._shutdown_flag = False
-            thread = threading.Thread(target=self._input_poll_worker, name="input_poll")
+            self.draw_message_center(t.t("Download Error"), t.t("Failed to download update file."), "✘", "error")
+            return
+        finally:
+            self._stop_all_threads()
+
+
+    def _download_file(self, url, local_path, progress_hook=None, num_file=None, keep_input=False, expected_md5=None):
+        # Validate every response, including retries: a server may ignore Range.
+        block_size = 512 * 1024
+        max_retries = 3
+        retry_count = 0
+        restart = False
+        strong_etag = None
+        known_total = None
+        try:
+            if not isinstance(expected_md5, str) or not re.fullmatch(r'[0-9a-fA-F]{32}', expected_md5):
+                raise ValueError("Missing or invalid expected download MD5")
+            identity = {'url': url, 'md5': expected_md5.lower()}
+            identity_path = local_path + '.download.json'
+            saved_identity = None
+            try:
+                with open(identity_path, 'r') as metadata:
+                    saved_identity = json.load(metadata)
+            except (OSError, ValueError):
+                pass
+            if saved_identity != identity:
+                # Unbound or changed resources must never inherit another download's bytes.
+                for path in (local_path, identity_path):
+                    if os.path.exists(path):
+                        os.remove(path)
+                metadata_tmp = identity_path + '.tmp'
+                try:
+                    with open(metadata_tmp, 'w') as metadata:
+                        json.dump(identity, metadata)
+                    os.replace(metadata_tmp, identity_path)
+                finally:
+                    if os.path.exists(metadata_tmp):
+                        os.remove(metadata_tmp)
+            self._stop_all_threads()
+            if any(thread.is_alive() for thread in self._active_threads):
+                raise RuntimeError("Previous input worker has not stopped")
+            stop_event = threading.Event()
+            thread = threading.Thread(target=self._input_poll_worker, args=(stop_event,), name="input_poll")
+            thread.stop_event = stop_event
             thread.daemon = True
             self._active_threads.append(thread)
             thread.start()
 
-            with open(local_path, mode) as f:
-                while retry_count <= max_retries:
-                    try:
-                        for data in response.iter_content(block_size):
-                            if self.input.slide_key():
-                                LOGGER.info("Download cancelled by user")
-                                return "cancelled"
-
-                            downloaded += len(data)
-                            f.write(data)
-                            f.flush()
-
-                            if progress_hook and total_size > 0:
-                                percent = (downloaded / (file_size + total_size)) * 100
-                                progress_hook(
-                                    (downloaded - file_size) // block_size,
-                                    block_size,
-                                    total_size,
-                                    num_file
-                                )
-                        break
-                    except (requests.exceptions.ChunkedEncodingError,
-                            requests.exceptions.ConnectionError) as e:
+            while True:
+                if self.input.slide_key():
+                    return "cancelled"
+                file_size = os.path.getsize(local_path) if os.path.exists(local_path) else 0
+                offset = 0 if restart else file_size
+                headers = self.cfg.headers.copy()
+                headers.pop('Range', None)
+                headers.pop('If-Range', None)
+                # Byte offsets and Content-Length must describe the saved bytes.
+                headers['Accept-Encoding'] = 'identity'
+                if offset:
+                    headers['Range'] = f'bytes={offset}-'
+                    if strong_etag:
+                        headers['If-Range'] = strong_etag
+                response = None
+                try:
+                    response = self.session.get(url, stream=True, timeout=(60, 300), headers=headers)
+                    response_etag = response.headers.get('etag')
+                    if (offset and response.status_code in (206, 416) and strong_etag
+                            and response_etag is not None and response_etag != strong_etag):
+                        # Never combine bytes from different versions of the resource.
+                        if retry_count >= max_retries:
+                            return False
                         retry_count += 1
-                        if retry_count > max_retries:
-                            raise e
-                        LOGGER.warning("Download interrupted, retrying (%s/%s): %s",
-                                       retry_count, max_retries, e)
-
-                        current_size = os.path.getsize(local_path)
-                        headers['Range'] = f'bytes={current_size}-'
-
-                        time.sleep(2 * retry_count)
-
-                        response = self.session.get(url, stream=True, timeout=(60, 300), headers=headers)
-                        response.raise_for_status()
+                        restart = True
+                        strong_etag = known_total = None
+                        continue
+                    if response.status_code == 416 and offset:
+                        match = re.fullmatch(r'bytes \*/(\d+)', response.headers.get('content-range', ''))
+                        if (match and offset == int(match.group(1))
+                                and (known_total is None or offset == known_total)):
+                            # The caller still verifies the complete file's checksum.
+                            return True
+                        if retry_count >= max_retries:
+                            return False
+                        retry_count += 1
+                        restart = True
+                        strong_etag = known_total = None
                         continue
 
-            return True
+                    response.raise_for_status()
+                    if response.headers.get('content-encoding', 'identity').lower() != 'identity':
+                        raise ValueError("Unexpected content encoding for a byte-range download")
+                    length_header = response.headers.get('content-length')
+                    body_size = int(length_header) if length_header is not None else None
+                    if body_size is not None and body_size < 0:
+                        raise ValueError("Invalid Content-Length")
+
+                    if response.status_code == 206:
+                        match = re.fullmatch(r'bytes (\d+)-(\d+)/(\d+)',
+                                             response.headers.get('content-range', ''))
+                        if not match:
+                            raise ValueError("Missing or invalid Content-Range")
+                        start, end, total_size = map(int, match.groups())
+                        if start != offset or end < start or end >= total_size:
+                            raise ValueError("Content-Range does not match the requested offset")
+                        expected_size = end - start + 1
+                        if body_size is not None and body_size != expected_size:
+                            raise ValueError("Content-Length disagrees with Content-Range")
+                        body_size = expected_size
+                        if known_total is not None and total_size != known_total:
+                            if retry_count >= max_retries:
+                                return False
+                            retry_count += 1
+                            restart = True
+                            strong_etag = known_total = None
+                            continue
+                    elif response.status_code == 200:
+                        # A full response replaces, never appends to, the old partial file.
+                        offset = 0
+                        total_size = body_size
+                        strong_etag = None
+                    else:
+                        raise ValueError("Unexpected download response status")
+
+                    known_total = total_size
+                    if response_etag and re.fullmatch(r'"[\x21\x23-\x7e\x80-\xff]*"', response_etag):
+                        strong_etag = response_etag
+                    restart = False
+                    received = 0
+                    mode = 'ab' if offset else 'wb'
+                    with open(local_path, mode) as f:
+                        for data in response.iter_content(block_size):
+                            if self.input.slide_key():
+                                return "cancelled"
+                            if not data:
+                                continue
+                            if body_size is not None and received + len(data) > body_size:
+                                raise ValueError("Download body exceeds the declared length")
+                            f.write(data)
+                            f.flush()
+                            received += len(data)
+                            if progress_hook and total_size:
+                                # The existing callback accepts block count, size and full size.
+                                progress_hook(offset + received, 1, total_size, num_file)
+                    if body_size is not None and received != body_size:
+                        raise requests.exceptions.ChunkedEncodingError("Incomplete download body")
+                    if response.status_code == 206 and offset + received < total_size:
+                        # A server may limit each range. Valid ranges always advance.
+                        continue
+                    return True
+                except (requests.exceptions.ChunkedEncodingError,
+                        requests.exceptions.ConnectionError,
+                        requests.exceptions.Timeout) as e:
+                    retry_count += 1
+                    if retry_count > max_retries:
+                        raise
+                    LOGGER.warning("Download interrupted, retrying (%s/%s): %s",
+                                   retry_count, max_retries, e)
+                    time.sleep(2 * retry_count)
+                finally:
+                    if response is not None:
+                        response.close()
         except requests.exceptions.Timeout:
             LOGGER.error("Timeout error downloading file: %s", url)
             return False
@@ -1491,17 +1660,17 @@ class LauncherApp:
             LOGGER.error("Unexpected error downloading file: %s - %s", url, e)
             return False
         finally:
-            # 确保线程被停止
-            self._stop_all_threads()
+            if not keep_input:
+                self._stop_all_threads()
 
-    def _input_poll_worker(self):
-        """专门的输入监听工作线程"""
-        while not self._shutdown_flag:
+    def _input_poll_worker(self, stop_event):
+        """Poll with a stop token owned by this worker, never reused by another."""
+        while not stop_event.is_set():
             try:
-                self.input.poll()
-                time.sleep(0.01)  # 小延迟避免过度占用CPU
+                self.input.poll(stop_event)
+                stop_event.wait(0.01)
             except Exception as e:
-                if not self._shutdown_flag:
+                if not stop_event.is_set():
                     LOGGER.error("Error in input poll worker: %s", e)
                 break
 
@@ -1674,9 +1843,13 @@ class LauncherApp:
             if self.input.is_key("B"):
                 break
             elif os.path.exists(LOG_FILE) and self.input.is_key("Y"):
-                with open(LOG_FILE, "r") as log_file:
-                    log_content = log_file.read()
-                    self.ui.show_info(log_content)
+                try:
+                    with open(LOG_FILE, "r", encoding="utf-8", errors="replace") as log_file:
+                        log_content = log_file.read()
+                except OSError as e:
+                    LOGGER.warning("Unable to read error log: %s", e)
+                    continue
+                self.ui.show_info(log_content)
                 break
 
     def _calculate_speed(self, downloaded: int) -> float | int | str:
@@ -1723,18 +1896,17 @@ class LauncherApp:
         time.sleep(0.5)
 
     def _stop_all_threads(self):
-        """停止所有活动线程"""
-        self._shutdown_flag = True
-        time.sleep(0.1)
-
+        for thread in self._active_threads:
+            thread.stop_event.set()
         for thread in self._active_threads[:]:
             if thread.is_alive():
                 thread.join(timeout=0.5)
-                if thread.is_alive():
-                    LOGGER.warning(f"Thread {thread.name} failed to terminate gracefully")
-            self._active_threads.remove(thread)
-
-        self.input.reset()
+            if thread.is_alive():
+                LOGGER.warning("Thread %s failed to terminate gracefully", thread.name)
+            else:
+                self._active_threads.remove(thread)
+        if not self._active_threads:
+            self.input.reset()
 
     @staticmethod
     def exit_not_cleanup(code: int) -> None:
@@ -1750,7 +1922,7 @@ class LauncherApp:
     def exit_cleanup(code: int, ui: UIRenderer, cfg: Config) -> None:
         LOGGER.info("Exiting with code %s", code)
         try:
-            for p in (cfg.tmp_info, cfg.tmp_app_update):
+            for p in (cfg.tmp_info, cfg.tmp_app_update, cfg.tmp_app_update + '.download.json'):
                 if os.path.isfile(p):
                     os.remove(p)
                 elif os.path.isdir(p):
