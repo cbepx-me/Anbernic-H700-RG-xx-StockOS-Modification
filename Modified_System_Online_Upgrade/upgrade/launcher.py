@@ -1383,7 +1383,7 @@ class LauncherApp:
                     ui.info_header(t.t("Update application"), t.t("Downloading update package"))
                     ui.text((ui.x_size // 2, ui.y_size - 120),
                             t.t("Tip: Press any key to cancel the download and return to the main menu"),
-                            font=22, anchor="mm", color=ui.cfg.COLOR_SECONDARY)
+                            font=22, anchor="mm", color=ui.cfg.COLOR_WARNING)
                     self.progress_bar(ui.y_size // 2 - 20, percent, label_top=label_top, label_bottom=label_bottom)
                     ui.paint()
             except Exception as e:
@@ -1449,16 +1449,18 @@ class LauncherApp:
                 try:
                     os.replace(self.cfg.tmp_app_update, self.cfg.tmp_app_ready)
                     identity_path = self.cfg.tmp_app_update + '.download.json'
-                    if os.path.exists(identity_path):
-                        os.remove(identity_path)
+                    # Retain the binding until publication commits, including late cancellation.
                     # Publish the readiness marker last; the wrapper rechecks the bytes.
                     marker_tmp = self.cfg.tmp_app_md5 + ".tmp"
                     with open(marker_tmp, "w") as marker:
                         marker.write(down_md5 + "\n")
                     if self.input.slide_key():
                         os.remove(marker_tmp)
+                        os.replace(self.cfg.tmp_app_ready, self.cfg.tmp_app_update)
                         return
                     os.replace(marker_tmp, self.cfg.tmp_app_md5)
+                    if os.path.exists(identity_path):
+                        os.remove(identity_path)
                 except OSError as e:
                     LOGGER.error("Unable to publish verified update: %s", e)
                     for path in (self.cfg.tmp_app_md5, self.cfg.tmp_app_md5 + ".tmp"):

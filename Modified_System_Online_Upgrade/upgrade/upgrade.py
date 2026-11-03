@@ -1602,6 +1602,7 @@ class Updater:
                     )
 
     def start_update(self, update_file_list: list, install_active: bool=False) -> bool:
+        self._staged_update_path = ""
         def require_manual_restart():
             self.draw_message_center(self.t.t("Restart required"),
                                      self.t.t("The update is installed. Please restart the device manually."),
@@ -1652,16 +1653,46 @@ class Updater:
             self.cfg.target_path = "/mnt/mmc/update/mod/patch"
         else:
             self.cfg.target_path = "/mnt/mmc/update/mod/patch" if mmc_space > sdcard_space else "/mnt/sdcard/update/mod/patch"
+        # Prefer the card holding bytes bound to this exact update, not the card
+        # whose free space grew relatively larger as the first download progressed.
+        bound_bytes = {}
+        for card in ("/mnt/mmc", "/mnt/sdcard"):
+            count = 0
+            for item in update_file_list:
+                payload = os.path.join(card, "update/mod/patch", item['filename'])
+                digest = item['md5']
+                if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-fA-F]{32}", digest):
+                    continue
+                try:
+                    if os.path.isfile(payload) and not os.path.islink(payload):
+                        with open(payload + '.download.json', encoding='utf-8') as metadata:
+                            identity = json.load(metadata)
+                        if identity == {'url': self.cfg.server_url + item['filename'], 'md5': digest.lower()}:
+                            count += os.path.getsize(payload)
+                except (OSError, ValueError, TypeError):
+                    continue
+            bound_bytes[card] = count
+        pinned_card = max(bound_bytes, key=bound_bytes.get)
+        if bound_bytes[pinned_card]:
+            self.cfg.target_path = os.path.join(pinned_card, "update/mod/patch")
+            if not os.path.ismount(pinned_card) or not os.access(pinned_card, os.W_OK):
+                LOGGER.error("The card containing the partial update is unavailable: %s", pinned_card)
+                self.draw_message_center(t.t("Update Failed"), t.t("Failed to update"), "✘", "error")
+                return False
         LOGGER.info("Starting update from path %s", self.cfg.target_path)
 
         total_size = 1024 * 1024 * 1024
-        if max(tmp_space, mmc_space, sdcard_space) < total_size:
+        selected_card = "/mnt/mmc" if self.cfg.target_path.startswith("/mnt/mmc/") else "/mnt/sdcard"
+        available_space = mmc_space if selected_card == "/mnt/mmc" else sdcard_space
+        if available_space + bound_bytes[selected_card] < total_size:
             LOGGER.info("There is not enough free space on %s", self.cfg.target_path)
             self.draw_message_center(t.t("Insufficient TF card space"), t.t("Please reserve 1GB of free space on TF1 or TF2"), "✘", "error")
-            shutil.rmtree(self.cfg.target_path, ignore_errors=True)
-            MainApp.exit_cleanup(2, self.ui, self.cfg)
             return False
 
+        if not os.path.ismount(selected_card) or not os.access(selected_card, os.W_OK):
+            LOGGER.error("Selected update card is unavailable: %s", selected_card)
+            self.draw_message_center(t.t("Update Failed"), t.t("Failed to update"), "✘", "error")
+            return False
         if not os.path.exists(self.cfg.target_path):
             os.makedirs(self.cfg.target_path, exist_ok=True)
 
@@ -1778,9 +1809,13 @@ class Updater:
                 return require_manual_restart()
             if MainApp.reboot(self.ui, self.cfg) is False:
                 return require_manual_restart()
+        if not install_active:
+            self._staged_update_path = self.cfg.target_path
         return True
 
     def start_append(self, update_url, md5) -> None:
+        staged_path = getattr(self, '_staged_update_path', '')
+        self._staged_update_path = ""
         ui = self.ui
         t = self.t
 
@@ -1851,8 +1886,30 @@ class Updater:
             else:
                 target_path = "/mnt/mmc" if mmc_space > sdcard_space else "/mnt/sdcard"
             LOGGER.info("Starting append update from path %s", target_path)
+            # Combined updates must extract beside the already staged system patches.
+            if staged_path in ("/mnt/mmc/update/mod/patch", "/mnt/sdcard/update/mod/patch"):
+                target_path = staged_path.split('/update/', 1)[0]
+            selected_script = os.path.join(target_path, "update/update.sh")
+            self.cfg.append_script = ""
+            try:
+                if not os.path.ismount(target_path) or not os.access(target_path, os.W_OK):
+                    raise OSError("Selected append card is unavailable")
+                with zipfile.ZipFile(self.cfg.tmp_update) as archive:
+                    required_space = sum(item.file_size for item in archive.infolist())
+                if shutil.disk_usage(target_path).free < required_space:
+                    raise OSError("Selected append card has insufficient free space")
+                # A successful extraction must supply a fresh script, never an old one.
+                if os.path.lexists(selected_script):
+                    os.remove(selected_script)
+            except (OSError, zipfile.BadZipFile) as e:
+                LOGGER.error("Unable to prepare selected append target: %s", e)
+                self.draw_message_center(t.t("Extraction Error"), t.t("Failed to extract update files."), "✘", "error")
+                return
+            LOGGER.info("Selected append installer: %s", selected_script)
 
-            if self.unpack_zip(self.cfg.tmp_update, target_path) == 0:
+            if (self.unpack_zip(self.cfg.tmp_update, target_path) == 0
+                    and os.path.isfile(selected_script) and not os.path.islink(selected_script)):
+                self.cfg.append_script = selected_script
                 self.draw_message_center(t.t("System Update"), t.t("Ready, start upgrading..."), "✔", "success")
                 time.sleep(3)
                 MainApp.reboot(self.ui, self.cfg, True)
@@ -1968,34 +2025,32 @@ class MainApp:
                 if os.path.exists(p):
                     os.remove(p)
             if auto:
+                selected_script = getattr(cfg, 'append_script', '')
+                if selected_script not in ("/mnt/mmc/update/update.sh", "/mnt/sdcard/update/update.sh"):
+                    raise ValueError("No selected append installer")
+                if not os.path.isfile(selected_script) or os.path.islink(selected_script):
+                    raise ValueError("Selected append installer is unavailable")
                 update_dir = "/mnt/mmc"
                 os.makedirs(update_dir, exist_ok=True)
                 update_script_path = os.path.join(update_dir, "autostart")
                 update_script_content = """#!/bin/bash
 
 rm -f "$0" || exit 1
-script_found=0
-for TF_PATH in mmc sdcard
-do
-    update_script="/mnt/${TF_PATH}/update/update.sh"
-    if [ -f "$update_script" ]; then
-        script_found=1
-        "$update_script"
-        update_status=$?
-        if [ "$update_status" -ne 0 ]; then
-            echo "Update script failed: $update_script" >&2
-            exit "$update_status"
-        fi
-    fi
-done
-if [ "$script_found" -eq 0 ]; then
-    echo "No update scripts found" >&2
+update_script="__SELECTED_UPDATE_SCRIPT__"
+if [ ! -f "$update_script" ]; then
+    echo "Selected update script is missing: $update_script" >&2
     exit 1
+fi
+/bin/bash "$update_script"
+update_status=$?
+if [ "$update_status" -ne 0 ]; then
+    echo "Update script failed: $update_script" >&2
+    exit "$update_status"
 fi
 exit 0
 """
                 with open(update_script_path, "w") as f:
-                    f.write(update_script_content)
+                    f.write(update_script_content.replace("__SELECTED_UPDATE_SCRIPT__", selected_script))
                 os.chmod(update_script_path, 0o755)
                 os.sync()
                 # Distinguish prepared installation from an ordinary return to the menu.
