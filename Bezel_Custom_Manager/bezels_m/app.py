@@ -98,10 +98,11 @@ def load_console_menu() -> None:
             gr.draw_paint()
             skip_input_check = True
             return
-        elif input.key("Y"):
-            current_window = "help"
-            skip_input_check = True
-            return
+
+    if input.key("Y"):
+        current_window = "help"
+        skip_input_check = True
+        return
 
     gr.draw_clear()
 
