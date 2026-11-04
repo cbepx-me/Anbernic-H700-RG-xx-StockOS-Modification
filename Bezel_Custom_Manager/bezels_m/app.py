@@ -67,6 +67,8 @@ def load_console_menu() -> None:
     global selected_position, selected_system, current_window, skip_input_check
 
     available_systems = bezels.get_available_systems(an.get_sd_storage_path())
+    # A system can disappear after its last config is deleted.
+    selected_position = max(0, min(selected_position, len(available_systems) - 1))
 
     if available_systems:
         if input.key("DY"):
@@ -96,17 +98,18 @@ def load_console_menu() -> None:
             gr.draw_paint()
             skip_input_check = True
             return
-        elif input.key("Y"):
-            current_window = "help"
-            skip_input_check = True
-            return
+
+    if input.key("Y"):
+        current_window = "help"
+        skip_input_check = True
+        return
 
     gr.draw_clear()
 
     gr.draw_rectangle_r([10, 40, x_size - 10, y_size - 40], 15, fill=gr.colorGrayD2, outline=None)
     gr.draw_text((x_size / 2, 20), f"{translator.translate('Bezel Custom Manager')} {ver}", font=23, anchor="mm")
 
-    if len(available_systems) > 1:
+    if available_systems:
         start_idx = int(selected_position / max_elem) * max_elem
         end_idx = start_idx + max_elem
         for i, system in enumerate(available_systems[start_idx:end_idx]):
