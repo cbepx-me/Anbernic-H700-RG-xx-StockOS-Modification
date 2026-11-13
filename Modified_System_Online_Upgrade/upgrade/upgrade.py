@@ -12,6 +12,7 @@ from __future__ import annotations
 # =========================
 import ctypes
 import glob
+import re
 import hashlib
 import json
 import logging
@@ -19,6 +20,7 @@ import math
 import os
 import shutil
 import socket
+import select
 import struct
 import subprocess
 import sys
@@ -359,32 +361,45 @@ class InputHandler:
             return fallback
         raise RuntimeError("No ANBERNIC input device found")
 
-    def poll(self) -> None:
+    def poll(self, stop_event=None) -> None:
+        if stop_event is not None and stop_event.is_set():
+            return
+        fd = None
         try:
-            with open(self.device_path, "rb") as f:
-                while True:
-                    event = f.read(24)
-                    if not event:
-                        break
-                    (tv_sec, tv_usec, etype, kcode, kvalue) = struct.unpack(
-                        "llHHI", event
-                    )
-                    if kvalue != 0:
-                        if kvalue != 1:
-                            kvalue = -1
-                        self.code_name = self.cfg.keymap.get(kcode, str(kcode))
-                        self.value = kvalue
-                        LOGGER.debug(
-                            "Key pressed: %s (code: %s, value: %s)",
-                            self.code_name,
-                            kcode,
-                            kvalue,
-                        )
+            fd = os.open(self.device_path, os.O_RDONLY | os.O_NONBLOCK)
+            pending = b""
+            while stop_event is None or not stop_event.is_set():
+                readable, _, _ = select.select([fd], [], [], 0.05 if stop_event is not None else None)
+                if stop_event is not None and stop_event.is_set():
+                    return
+                if not readable:
+                    continue
+                try:
+                    data = os.read(fd, 24 - len(pending))
+                except BlockingIOError:
+                    continue
+                if not data:
+                    break
+                pending += data
+                if len(pending) < 24:
+                    continue
+                tv_sec, tv_usec, etype, kcode, kvalue = struct.unpack("llHHI", pending)
+                pending = b""
+                if kvalue != 0:
+                    if stop_event is not None and stop_event.is_set():
                         return
+                    self.code_name = self.cfg.keymap.get(kcode, str(kcode))
+                    self.value = 1 if kvalue == 1 else -1
+                    LOGGER.debug("Key pressed: %s (code: %s, value: %s)",
+                                 self.code_name, kcode, self.value)
+                    return
         except Exception as e:
             LOGGER.error("Error reading input: %s", e)
             self.code_name = ""
             self.value = 0
+        finally:
+            if fd is not None:
+                os.close(fd)
 
     def is_key(self, name: str, key_value: int = 99) -> bool:
         if self.code_name == name:
@@ -822,6 +837,7 @@ class Updater:
         self.session = requests.Session()
         self.session.headers.update(self.cfg.headers)
         self._active_threads = []
+        self._restart_required = False
         self._shutdown_flag = False
 
         retry = Retry(
@@ -836,101 +852,161 @@ class Updater:
         self.session.mount('https://', adapter)
         self.session.headers.update(self.cfg.headers)
 
-    def _download_file(self, url, local_path, progress_hook=None, num_file=None):
+    def _download_file(self, url, local_path, progress_hook=None, num_file=None, keep_input=False, expected_md5=None):
+        # Validate every response, including retries: a server may ignore Range.
+        block_size = 512 * 1024
+        max_retries = 3
+        retry_count = 0
+        restart = False
+        strong_etag = None
+        known_total = None
         try:
-            file_size = 0
-            if os.path.exists(local_path):
-                file_size = os.path.getsize(local_path)
-
-            headers = self.cfg.headers.copy()
-            if file_size > 0:
-                headers['Range'] = f'bytes={file_size}-'
-                LOGGER.info("Resuming download from byte %s", file_size)
-
-            response = self.session.get(url, stream=True, timeout=(60, 300), headers=headers)
-
-            if file_size > 0 and response.status_code == 416:
-                content_range = response.headers.get('content-range', '')
-                if content_range.startswith('bytes */'):
-                    try:
-                        total_size_from_server = int(content_range.split('/')[1])
-                        if file_size >= total_size_from_server:
-                            LOGGER.info("File already fully downloaded (416 due to complete file)")
-                            return True
-                    except (ValueError, IndexError):
-                        pass
-
-                LOGGER.warning("Server doesn't support range requests or range invalid, restarting download")
-                os.remove(local_path)
-                file_size = 0
-                headers.pop('Range', None)
-                response = self.session.get(url, stream=True, timeout=(60, 300), headers=headers)
-
-            response.raise_for_status()
-
-            total_size = int(response.headers.get('content-length', 0))
-            if 'content-range' in response.headers:
-                content_range = response.headers['content-range']
-                if '/' in content_range:
-                    total_size = int(content_range.split('/')[-1])
-
-            if file_size > 0 and total_size > file_size:
-                total_size = total_size - file_size
-            elif file_size > 0:
-                total_size = total_size
-
-            block_size = 512 * 1024  # 512KB block
-            downloaded = file_size
-            retry_count = 0
-            max_retries = 3
-
-            mode = 'ab' if file_size > 0 else 'wb'
+            if not isinstance(expected_md5, str) or not re.fullmatch(r'[0-9a-fA-F]{32}', expected_md5):
+                raise ValueError("Missing or invalid expected download MD5")
+            identity = {'url': url, 'md5': expected_md5.lower()}
+            identity_path = local_path + '.download.json'
+            saved_identity = None
+            try:
+                with open(identity_path, 'r') as metadata:
+                    saved_identity = json.load(metadata)
+            except (OSError, ValueError):
+                pass
+            if saved_identity != identity:
+                # Unbound or changed resources must never inherit another download's bytes.
+                for path in (local_path, identity_path):
+                    if os.path.exists(path):
+                        os.remove(path)
+                metadata_tmp = identity_path + '.tmp'
+                try:
+                    with open(metadata_tmp, 'w') as metadata:
+                        json.dump(identity, metadata)
+                    os.replace(metadata_tmp, identity_path)
+                finally:
+                    if os.path.exists(metadata_tmp):
+                        os.remove(metadata_tmp)
             self._stop_all_threads()
-            self._shutdown_flag = False
-            thread = threading.Thread(target=self._input_poll_worker, name="input_poll")
+            if any(thread.is_alive() for thread in self._active_threads):
+                raise RuntimeError("Previous input worker has not stopped")
+            stop_event = threading.Event()
+            thread = threading.Thread(target=self._input_poll_worker, args=(stop_event,), name="input_poll")
+            thread.stop_event = stop_event
             thread.daemon = True
             self._active_threads.append(thread)
             thread.start()
 
-            with open(local_path, mode) as f:
-                while retry_count <= max_retries:
-                    try:
-                        for data in response.iter_content(block_size):
-                            if self.input.slide_key():
-                                LOGGER.info("Download cancelled by user")
-                                return "cancelled"
-
-                            downloaded += len(data)
-                            f.write(data)
-                            f.flush()
-
-                            if progress_hook and total_size > 0:
-                                percent = (downloaded / (file_size + total_size)) * 100
-                                progress_hook(
-                                    (downloaded - file_size) // block_size,
-                                    block_size,
-                                    total_size,
-                                    num_file
-                                )
-                        break
-                    except (requests.exceptions.ChunkedEncodingError,
-                            requests.exceptions.ConnectionError) as e:
+            while True:
+                if self.input.slide_key():
+                    return "cancelled"
+                file_size = os.path.getsize(local_path) if os.path.exists(local_path) else 0
+                offset = 0 if restart else file_size
+                headers = self.cfg.headers.copy()
+                headers.pop('Range', None)
+                headers.pop('If-Range', None)
+                # Byte offsets and Content-Length must describe the saved bytes.
+                headers['Accept-Encoding'] = 'identity'
+                if offset:
+                    headers['Range'] = f'bytes={offset}-'
+                    if strong_etag:
+                        headers['If-Range'] = strong_etag
+                response = None
+                try:
+                    response = self.session.get(url, stream=True, timeout=(60, 300), headers=headers)
+                    response_etag = response.headers.get('etag')
+                    if (offset and response.status_code in (206, 416) and strong_etag
+                            and response_etag is not None and response_etag != strong_etag):
+                        # Never combine bytes from different versions of the resource.
+                        if retry_count >= max_retries:
+                            return False
                         retry_count += 1
-                        if retry_count > max_retries:
-                            raise e
-                        LOGGER.warning("Download interrupted, retrying (%s/%s): %s",
-                                       retry_count, max_retries, e)
-
-                        current_size = os.path.getsize(local_path)
-                        headers['Range'] = f'bytes={current_size}-'
-
-                        time.sleep(2 * retry_count)
-
-                        response = self.session.get(url, stream=True, timeout=(60, 300), headers=headers)
-                        response.raise_for_status()
+                        restart = True
+                        strong_etag = known_total = None
+                        continue
+                    if response.status_code == 416 and offset:
+                        match = re.fullmatch(r'bytes \*/(\d+)', response.headers.get('content-range', ''))
+                        if (match and offset == int(match.group(1))
+                                and (known_total is None or offset == known_total)):
+                            # The caller still verifies the complete file's checksum.
+                            return True
+                        if retry_count >= max_retries:
+                            return False
+                        retry_count += 1
+                        restart = True
+                        strong_etag = known_total = None
                         continue
 
-            return True
+                    response.raise_for_status()
+                    if response.headers.get('content-encoding', 'identity').lower() != 'identity':
+                        raise ValueError("Unexpected content encoding for a byte-range download")
+                    length_header = response.headers.get('content-length')
+                    body_size = int(length_header) if length_header is not None else None
+                    if body_size is not None and body_size < 0:
+                        raise ValueError("Invalid Content-Length")
+
+                    if response.status_code == 206:
+                        match = re.fullmatch(r'bytes (\d+)-(\d+)/(\d+)',
+                                             response.headers.get('content-range', ''))
+                        if not match:
+                            raise ValueError("Missing or invalid Content-Range")
+                        start, end, total_size = map(int, match.groups())
+                        if start != offset or end < start or end >= total_size:
+                            raise ValueError("Content-Range does not match the requested offset")
+                        expected_size = end - start + 1
+                        if body_size is not None and body_size != expected_size:
+                            raise ValueError("Content-Length disagrees with Content-Range")
+                        body_size = expected_size
+                        if known_total is not None and total_size != known_total:
+                            if retry_count >= max_retries:
+                                return False
+                            retry_count += 1
+                            restart = True
+                            strong_etag = known_total = None
+                            continue
+                    elif response.status_code == 200:
+                        # A full response replaces, never appends to, the old partial file.
+                        offset = 0
+                        total_size = body_size
+                        strong_etag = None
+                    else:
+                        raise ValueError("Unexpected download response status")
+
+                    known_total = total_size
+                    if response_etag and re.fullmatch(r'"[\x21\x23-\x7e\x80-\xff]*"', response_etag):
+                        strong_etag = response_etag
+                    restart = False
+                    received = 0
+                    mode = 'ab' if offset else 'wb'
+                    with open(local_path, mode) as f:
+                        for data in response.iter_content(block_size):
+                            if self.input.slide_key():
+                                return "cancelled"
+                            if not data:
+                                continue
+                            if body_size is not None and received + len(data) > body_size:
+                                raise ValueError("Download body exceeds the declared length")
+                            f.write(data)
+                            f.flush()
+                            received += len(data)
+                            if progress_hook and total_size:
+                                # The existing callback accepts block count, size and full size.
+                                progress_hook(offset + received, 1, total_size, num_file)
+                    if body_size is not None and received != body_size:
+                        raise requests.exceptions.ChunkedEncodingError("Incomplete download body")
+                    if response.status_code == 206 and offset + received < total_size:
+                        # A server may limit each range. Valid ranges always advance.
+                        continue
+                    return True
+                except (requests.exceptions.ChunkedEncodingError,
+                        requests.exceptions.ConnectionError,
+                        requests.exceptions.Timeout) as e:
+                    retry_count += 1
+                    if retry_count > max_retries:
+                        raise
+                    LOGGER.warning("Download interrupted, retrying (%s/%s): %s",
+                                   retry_count, max_retries, e)
+                    time.sleep(2 * retry_count)
+                finally:
+                    if response is not None:
+                        response.close()
         except requests.exceptions.Timeout:
             LOGGER.error("Timeout error downloading file: %s", url)
             return False
@@ -944,34 +1020,32 @@ class Updater:
             LOGGER.error("Unexpected error downloading file: %s - %s", url, e)
             return False
         finally:
-            # 确保线程被停止
-            self._stop_all_threads()
+            if not keep_input:
+                self._stop_all_threads()
 
-    def _input_poll_worker(self):
-        """专门的输入监听工作线程"""
-        while not self._shutdown_flag:
+    def _input_poll_worker(self, stop_event):
+        """Poll with a stop token owned by this worker, never reused by another."""
+        while not stop_event.is_set():
             try:
-                self.input.poll()
-                time.sleep(0.01)  # 小延迟避免过度占用CPU
+                self.input.poll(stop_event)
+                stop_event.wait(0.01)
             except Exception as e:
-                if not self._shutdown_flag:
+                if not stop_event.is_set():
                     LOGGER.error("Error in input poll worker: %s", e)
                 break
 
     def _stop_all_threads(self):
-        """停止所有活动线程"""
-        self._shutdown_flag = True
-        time.sleep(0.1)  # 给线程时间响应
-
+        for thread in self._active_threads:
+            thread.stop_event.set()
         for thread in self._active_threads[:]:
             if thread.is_alive():
                 thread.join(timeout=0.5)
-                if thread.is_alive():
-                    LOGGER.warning(f"Thread {thread.name} failed to terminate gracefully")
-            self._active_threads.remove(thread)
-
-        # 重置输入状态
-        self.input.reset()
+            if thread.is_alive():
+                LOGGER.warning("Thread %s failed to terminate gracefully", thread.name)
+            else:
+                self._active_threads.remove(thread)
+        if not self._active_threads:
+            self.input.reset()
 
     @staticmethod
     def is_connected() -> bool:
@@ -1152,17 +1226,19 @@ class Updater:
 
         max_panel_width = min(ui.x_size - 100, 650)
         padding = 30
+        # Icon text starts 125px from the panel edge; preserve right padding too.
+        text_width = max_panel_width - padding - (125 if icon else padding)
 
         title_font_size = 24
         subtitle_font_size = 20
 
-        title_lines = self._wrap_text(ui, title, title_font_size, max_panel_width - 2 * padding - (60 if icon else 0))
+        title_lines = self._wrap_text(ui, title, title_font_size, text_width)
         title_height = len(title_lines) * 35
 
         subtitle_height = 0
         if subtitle:
             subtitle_lines = self._wrap_text(ui, subtitle, subtitle_font_size,
-                                             max_panel_width - 2 * padding - (60 if icon else 0))
+                                             text_width)
             subtitle_height = len(subtitle_lines) * 28
 
         panel_height = 60 + title_height + subtitle_height + 30
@@ -1202,7 +1278,7 @@ class Updater:
         if subtitle:
             subtitle_start_y = text_start_y + title_height + 15
             subtitle_lines = self._wrap_text(ui, subtitle, subtitle_font_size,
-                                             max_panel_width - 2 * padding - (60 if icon else 0))
+                                             text_width)
 
             if icon:
                 subtitle_x = text_x
@@ -1253,9 +1329,13 @@ class Updater:
             if self.input.is_key("B"):
                 break
             elif os.path.exists(LOG_FILE) and self.input.is_key("Y"):
-                with open(LOG_FILE, "r") as log_file:
-                    log_content = log_file.read()
-                    self.show_info(log_content)
+                try:
+                    with open(LOG_FILE, "r", encoding="utf-8", errors="replace") as log_file:
+                        log_content = log_file.read()
+                except OSError as e:
+                    LOGGER.warning("Unable to read error log: %s", e)
+                    continue
+                self.show_info(log_content)
                 break
 
     def _wrap_text(self, ui: UIRenderer, text: str, font_size: int, max_width: int) -> list:
@@ -1281,6 +1361,7 @@ class Updater:
             else:
                 if current_line:
                     lines.append(' '.join(current_line))
+                    current_line = []
                 if ui.active_draw.textbbox((0, 0), word, font=font)[2] > max_width:
                     chars = list(word)
                     split_word = []
@@ -1520,7 +1601,21 @@ class Updater:
                         lines, text_x, panel_height, text_width, font, current_page
                     )
 
-    def start_update(self, update_file_list: list, install_active: bool=False) -> None:
+    def start_update(self, update_file_list: list, install_active: bool=False) -> bool:
+        self._staged_update_path = ""
+        def require_manual_restart():
+            self.draw_message_center(self.t.t("Restart required"),
+                                     self.t.t("The update is installed. Please restart the device manually."),
+                                     icon="✘", status="error")
+            return False
+
+        if getattr(self, "_restart_required", False):
+            return require_manual_restart()
+        if not update_file_list:
+            LOGGER.error("Refusing an empty system update file list")
+            self.draw_message_center(self.t.t("Update Failed"), self.t.t("Failed to update"),
+                                     icon="✘", status="error")
+            return False
         ui = self.ui
         t = self.t
 
@@ -1558,15 +1653,46 @@ class Updater:
             self.cfg.target_path = "/mnt/mmc/update/mod/patch"
         else:
             self.cfg.target_path = "/mnt/mmc/update/mod/patch" if mmc_space > sdcard_space else "/mnt/sdcard/update/mod/patch"
+        # Prefer the card holding bytes bound to this exact update, not the card
+        # whose free space grew relatively larger as the first download progressed.
+        bound_bytes = {}
+        for card in ("/mnt/mmc", "/mnt/sdcard"):
+            count = 0
+            for item in update_file_list:
+                payload = os.path.join(card, "update/mod/patch", item['filename'])
+                digest = item['md5']
+                if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-fA-F]{32}", digest):
+                    continue
+                try:
+                    if os.path.isfile(payload) and not os.path.islink(payload):
+                        with open(payload + '.download.json', encoding='utf-8') as metadata:
+                            identity = json.load(metadata)
+                        if identity == {'url': self.cfg.server_url + item['filename'], 'md5': digest.lower()}:
+                            count += os.path.getsize(payload)
+                except (OSError, ValueError, TypeError):
+                    continue
+            bound_bytes[card] = count
+        pinned_card = max(bound_bytes, key=bound_bytes.get)
+        if bound_bytes[pinned_card]:
+            self.cfg.target_path = os.path.join(pinned_card, "update/mod/patch")
+            if not os.path.ismount(pinned_card) or not os.access(pinned_card, os.W_OK):
+                LOGGER.error("The card containing the partial update is unavailable: %s", pinned_card)
+                self.draw_message_center(t.t("Update Failed"), t.t("Failed to update"), "✘", "error")
+                return False
         LOGGER.info("Starting update from path %s", self.cfg.target_path)
 
         total_size = 1024 * 1024 * 1024
-        if max(tmp_space, mmc_space, sdcard_space) < total_size:
+        selected_card = "/mnt/mmc" if self.cfg.target_path.startswith("/mnt/mmc/") else "/mnt/sdcard"
+        available_space = mmc_space if selected_card == "/mnt/mmc" else sdcard_space
+        if available_space + bound_bytes[selected_card] < total_size:
             LOGGER.info("There is not enough free space on %s", self.cfg.target_path)
             self.draw_message_center(t.t("Insufficient TF card space"), t.t("Please reserve 1GB of free space on TF1 or TF2"), "✘", "error")
-            shutil.rmtree(self.cfg.target_path)
-            MainApp.exit_cleanup(2, self.ui, self.cfg)
+            return False
 
+        if not os.path.ismount(selected_card) or not os.access(selected_card, os.W_OK):
+            LOGGER.error("Selected update card is unavailable: %s", selected_card)
+            self.draw_message_center(t.t("Update Failed"), t.t("Failed to update"), "✘", "error")
+            return False
         if not os.path.exists(self.cfg.target_path):
             os.makedirs(self.cfg.target_path, exist_ok=True)
 
@@ -1575,19 +1701,20 @@ class Updater:
             down_url = self.cfg.server_url + item['filename']
             target_file = os.path.join(self.cfg.target_path, item['filename'])
             download_result = self._download_file(down_url, target_file, progress_hook,
-                                                  str(f'({file_num}/{len(update_file_list)})'))
+                                                  str(f'({file_num}/{len(update_file_list)})'), expected_md5=item['md5'])
 
             if download_result == "cancelled":
                 LOGGER.info("System update cancelled by user")
                 self.draw_message_center(t.t("Download Cancelled"), t.t("Returning to main menu..."), "☹", "info")
                 time.sleep(2)
-                return
+                return False
 
             if not download_result:
                 LOGGER.error(f"Error downloading update file: {down_url}")
                 self.draw_message_center(t.t("Download Error"), t.t("Failed to download update file."), "✘", "error")
                 shutil.rmtree(self.cfg.target_path)
                 MainApp.exit_cleanup(2, self.ui, self.cfg)
+                return False
             file_num += 1
 
         LOGGER.info(f"Verifying downloaded files: {self.cfg.target_path}")
@@ -1615,6 +1742,7 @@ class Updater:
                 self.draw_message_center(t.t("Verification Failed"), t.t("File integrity check failed."), "✘", "error")
                 shutil.rmtree(self.cfg.target_path)
                 MainApp.exit_cleanup(3, self.ui, self.cfg)
+                return False
 
         if install_active:
             install_tmp_path = os.path.join(self.cfg.target_path, "tmp")
@@ -1629,7 +1757,7 @@ class Updater:
                         has_install = os.path.isfile(install_script)
                         if has_install:
                             LOGGER.info(f"Executing install.sh for {item['filename']}")
-                            self.draw_message_center(f'{self.t.t("Installing")}: {item["filename"]}', "✪", "info")
+                            self.draw_message_center(f'{self.t.t("Installing")}: {item["filename"]}', icon="✪", status="info")
                             try:
                                 st = os.stat(os.path.join(install_tmp_path, "install.sh"))
                                 os.chmod(os.path.join(install_tmp_path, "install.sh"), st.st_mode | 0o111)
@@ -1645,30 +1773,49 @@ class Updater:
                                     LOGGER.error(f"stdout: {result.stdout}")
                                     LOGGER.error(f"stderr: {result.stderr}")
                                     self.draw_message_center(f'{self.t.t("Installation Failed")}: {item["filename"]}',
-                                                             "✘", "error")
+                                                             icon="✘", status="error")
                                     shutil.rmtree(install_tmp_path, ignore_errors=True)
+                                    return False
                                 LOGGER.info(f"install.sh executed successfully")
-                                self.draw_message_center(f'{self.t.t("Installation Complete")}: {item["filename"]}', "✔",
-                                                         "success")
+                                self.draw_message_center(f'{self.t.t("Installation Complete")}: {item["filename"]}', icon="✔",
+                                                         status="success")
                             except Exception as e:
                                 LOGGER.error(f"Error executing install.sh: {e}")
-                                self.draw_message_center(f'{self.t.t("Installation Failed")}: {item["filename"]}', "✘",
-                                                         "error")
+                                self.draw_message_center(f'{self.t.t("Installation Failed")}: {item["filename"]}', icon="✘",
+                                                         status="error")
                                 shutil.rmtree(install_tmp_path, ignore_errors=True)
+                                return False
+                        else:
+                            LOGGER.error("Missing install.sh in %s", source_file)
+                            return False
                     else:
                         LOGGER.error(f"Error unpacking update file: {item['filename']}")
                         self.draw_message_center(t.t("Extraction Error"), t.t("Failed to extract update files."), "✘",
                                                  "error")
                         shutil.rmtree(self.cfg.target_path)
                         MainApp.exit_cleanup(4, self.ui, self.cfg)
+                        return False
+                else:
+                    LOGGER.error("Missing update package: %s", source_file)
+                    return False
 
-
+            self._restart_required = True
             self.draw_message_center(t.t("System Update"), t.t("Ready, start upgrading..."), "✔", "success")
             time.sleep(3)
-            shutil.rmtree(self.cfg.target_path)
-            MainApp.reboot(self.ui, self.cfg)
+            try:
+                shutil.rmtree(self.cfg.target_path)
+            except OSError as e:
+                LOGGER.error("Post-install cleanup failed: %s", e)
+                return require_manual_restart()
+            if MainApp.reboot(self.ui, self.cfg) is False:
+                return require_manual_restart()
+        if not install_active:
+            self._staged_update_path = self.cfg.target_path
+        return True
 
     def start_append(self, update_url, md5) -> None:
+        staged_path = getattr(self, '_staged_update_path', '')
+        self._staged_update_path = ""
         ui = self.ui
         t = self.t
 
@@ -1699,7 +1846,7 @@ class Updater:
         LOGGER.info("Starting OS append update process")
         self.draw_message_center(t.t("Downloading"), t.t("Fetching verification data..."), "㊙", "info")
 
-        download_result = self._download_file(update_url, self.cfg.tmp_update, progress_hook, '(1/1)')
+        download_result = self._download_file(update_url, self.cfg.tmp_update, progress_hook, '(1/1)', expected_md5=md5)
 
         if download_result == "cancelled":
             LOGGER.info("Append update cancelled by user")
@@ -1739,8 +1886,30 @@ class Updater:
             else:
                 target_path = "/mnt/mmc" if mmc_space > sdcard_space else "/mnt/sdcard"
             LOGGER.info("Starting append update from path %s", target_path)
+            # Combined updates must extract beside the already staged system patches.
+            if staged_path in ("/mnt/mmc/update/mod/patch", "/mnt/sdcard/update/mod/patch"):
+                target_path = staged_path.split('/update/', 1)[0]
+            selected_script = os.path.join(target_path, "update/update.sh")
+            self.cfg.append_script = ""
+            try:
+                if not os.path.ismount(target_path) or not os.access(target_path, os.W_OK):
+                    raise OSError("Selected append card is unavailable")
+                with zipfile.ZipFile(self.cfg.tmp_update) as archive:
+                    required_space = sum(item.file_size for item in archive.infolist())
+                if shutil.disk_usage(target_path).free < required_space:
+                    raise OSError("Selected append card has insufficient free space")
+                # A successful extraction must supply a fresh script, never an old one.
+                if os.path.lexists(selected_script):
+                    os.remove(selected_script)
+            except (OSError, zipfile.BadZipFile) as e:
+                LOGGER.error("Unable to prepare selected append target: %s", e)
+                self.draw_message_center(t.t("Extraction Error"), t.t("Failed to extract update files."), "✘", "error")
+                return
+            LOGGER.info("Selected append installer: %s", selected_script)
 
-            if self.unpack_zip(self.cfg.tmp_update, target_path) == 0:
+            if (self.unpack_zip(self.cfg.tmp_update, target_path) == 0
+                    and os.path.isfile(selected_script) and not os.path.islink(selected_script)):
+                self.cfg.append_script = selected_script
                 self.draw_message_center(t.t("System Update"), t.t("Ready, start upgrading..."), "✔", "success")
                 time.sleep(3)
                 MainApp.reboot(self.ui, self.cfg, True)
@@ -1749,6 +1918,9 @@ class Updater:
                 self.draw_message_center(t.t("Extraction Error"), t.t("Failed to extract update files."), "✘", "error")
                 MainApp.exit_cleanup(4, self.ui, self.cfg)
         else:
+            for path in (self.cfg.tmp_update, self.cfg.tmp_update + '.download.json'):
+                if os.path.exists(path):
+                    os.remove(path)
             LOGGER.error("MD5 verification failed. Expected: %s, Got: %s", md5, down_md5)
             self.draw_message_center(t.t("Verification Failed"), t.t("File integrity check failed."), "✘", "error")
             MainApp.exit_cleanup(3, self.ui, self.cfg)
@@ -1834,7 +2006,7 @@ class MainApp:
     def exit_cleanup(code: int, ui: UIRenderer, cfg: Config) -> None:
         LOGGER.info("Exiting with code %s", code)
         try:
-            for p in (cfg.tmp_info, cfg.tmp_update, cfg.target_path):
+            for p in (cfg.tmp_info, cfg.tmp_update, cfg.tmp_update + '.download.json', cfg.target_path):
                 if os.path.isfile(p):
                     os.remove(p)
                 elif os.path.isdir(p):
@@ -1846,38 +2018,57 @@ class MainApp:
             sys.exit(code)
 
     @staticmethod
-    def reboot(ui: UIRenderer, cfg: Config, auto=False) -> None:
+    def reboot(ui: UIRenderer, cfg: Config, auto=False) -> bool:
         LOGGER.info("Rebooting system")
         try:
-            for p in (cfg.tmp_info, cfg.tmp_update, "/mnt/mod/update.dep"):
+            for p in (cfg.tmp_info, cfg.tmp_update, cfg.tmp_update + '.download.json', "/mnt/mod/update.dep"):
                 if os.path.exists(p):
                     os.remove(p)
             if auto:
+                selected_script = getattr(cfg, 'append_script', '')
+                if selected_script not in ("/mnt/mmc/update/update.sh", "/mnt/sdcard/update/update.sh"):
+                    raise ValueError("No selected append installer")
+                if not os.path.isfile(selected_script) or os.path.islink(selected_script):
+                    raise ValueError("Selected append installer is unavailable")
                 update_dir = "/mnt/mmc"
                 os.makedirs(update_dir, exist_ok=True)
                 update_script_path = os.path.join(update_dir, "autostart")
                 update_script_content = """#!/bin/bash
 
-rm -f $0
-for TF_PATH in mmc sdcard
-do
-    [ -f /mnt/${TF_PATH}/update/update.sh ] && /mnt/${TF_PATH}/update/update.sh
-done
+rm -f "$0" || exit 1
+update_script="__SELECTED_UPDATE_SCRIPT__"
+if [ ! -f "$update_script" ]; then
+    echo "Selected update script is missing: $update_script" >&2
+    exit 1
+fi
+/bin/bash "$update_script"
+update_status=$?
+if [ "$update_status" -ne 0 ]; then
+    echo "Update script failed: $update_script" >&2
+    exit "$update_status"
+fi
 exit 0
 """
                 with open(update_script_path, "w") as f:
-                    f.write(update_script_content)
+                    f.write(update_script_content.replace("__SELECTED_UPDATE_SCRIPT__", selected_script))
                 os.chmod(update_script_path, 0o755)
                 os.sync()
-                sys.exit(0)
+                # Distinguish prepared installation from an ordinary return to the menu.
+                sys.exit(37)
 
-            ui.draw_end()
             os.sync()
-            os.system("reboot")
+            reboot_status = os.system("reboot")
+            if reboot_status != 0:
+                LOGGER.error("Reboot command was not accepted (status %s)", reboot_status)
+                return False
+            ui.draw_end()
             sys.exit(0)
         except Exception as e:
             LOGGER.error("Error during reboot: %s", e)
+            if not auto:
+                return False
             MainApp.exit_cleanup(1, ui, cfg)
+            return False
 
     def run(self) -> None:
         self.ui.draw_loading_screen(
@@ -1958,6 +2149,8 @@ exit 0
 
         while True:
             try:
+                if getattr(self.updater, "_restart_required", False):
+                    update_active = append_active = False
                 self.updater.draw_home(self.board_info, cur_ver, new_ver, os_cur_ver,
                                        update_enabled=update_active, append_enabled=append_active)
 
@@ -1971,13 +2164,18 @@ exit 0
                     MainApp.exit_cleanup(0, self.ui, self.cfg)
 
                 elif self.input.is_key("A"):
-                    if append_active and not update_active:
+                    if getattr(self.updater, "_restart_required", False):
+                        self.updater.draw_message_center(
+                            self.t.t("Restart required"),
+                            self.t.t("The update is installed. Please restart the device manually."),
+                            icon="✘", status="error")
+                    elif append_active and not update_active:
                         self.updater.start_append(data_update_url, data_md5)
                     elif not append_active and update_active:
                         self.updater.start_update(update_file_list, install_active=True)
-                    else:
-                        self.updater.start_update(update_file_list, install_active=False)
-                        self.updater.start_append(data_update_url, data_md5)
+                    elif append_active and update_active:
+                        if self.updater.start_update(update_file_list, install_active=False) is True:
+                            self.updater.start_append(data_update_url, data_md5)
 
                 elif self.input.is_key("Y"):
                     self.updater.show_info(update_info)
