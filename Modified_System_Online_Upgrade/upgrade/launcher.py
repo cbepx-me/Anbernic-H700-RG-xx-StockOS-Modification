@@ -26,6 +26,28 @@ from PIL import Image, ImageDraw, ImageFont
 
 cur_app_ver = "1.1.5"
 
+def is_newer_app_version(current, available):
+    """Compare dotted numeric versions; unknown formats must not trigger updates."""
+    def components(value):
+        if not isinstance(value, str) or not value:
+            return None
+        parts = value.split(".")
+        if not all(part and all("0" <= char <= "9" for char in part) for part in parts):
+            return None
+        try:
+            numbers = tuple(int(part) for part in parts)
+        except ValueError:
+            return None
+        # A trailing zero does not change the version (1.1 == 1.1.0).
+        while numbers and numbers[-1] == 0:
+            numbers = numbers[:-1]
+        return numbers
+
+    old = components(current)
+    new = components(available)
+    return old is not None and new is not None and new > old
+
+
 def ensure_requests():
     try:
         import sdl2
@@ -1780,7 +1802,7 @@ class LauncherApp:
             app_md5 = self.update_info_dict.get('app').get('md5')
             LOGGER.info(f"app: v{app_ver}")
 
-        if app_ver != "Unknown" and cur_app_ver < app_ver and bool(app_update_url):
+        if is_newer_app_version(cur_app_ver, app_ver) and bool(app_update_url):
             self.update_app(app_ver, app_update_url, app_md5)
 
         while True:
